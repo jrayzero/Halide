@@ -65,7 +65,8 @@ Stmt build_provide_loop_nest_helper(string func_name,
                                     const vector<Expr> &values,
                                     const vector<Expr> &predicates,
                                     const Schedule &s,
-                                    bool is_update) {
+                                    bool is_update,
+                                    bool compile_to_coli) {
 
 
     // We'll build it from inside out, starting from a store node,
@@ -97,136 +98,138 @@ Stmt build_provide_loop_nest_helper(string func_name,
     vector<Split> splits = s.splits();
 
     // Define the function args in terms of the loop variables using the splits
-    for (const Split &split : splits) {
-        Expr outer = Variable::make(Int(32), prefix + split.outer);
-        Expr outer_max = Variable::make(Int(32), prefix + split.outer + ".loop_max");
-        if (split.is_split()) {
-            Expr inner = Variable::make(Int(32), prefix + split.inner);
-            Expr old_max = Variable::make(Int(32), prefix + split.old_var + ".loop_max");
-            Expr old_min = Variable::make(Int(32), prefix + split.old_var + ".loop_min");
-            Expr old_extent = Variable::make(Int(32), prefix + split.old_var + ".loop_extent");
+    if (!compile_to_coli) {
+        for (const Split &split : splits) {
+            Expr outer = Variable::make(Int(32), prefix + split.outer);
+            Expr outer_max = Variable::make(Int(32), prefix + split.outer + ".loop_max");
+            if (split.is_split()) {
+                Expr inner = Variable::make(Int(32), prefix + split.inner);
+                Expr old_max = Variable::make(Int(32), prefix + split.old_var + ".loop_max");
+                Expr old_min = Variable::make(Int(32), prefix + split.old_var + ".loop_min");
+                Expr old_extent = Variable::make(Int(32), prefix + split.old_var + ".loop_extent");
 
-            dim_extent_alignment[split.inner] = split.factor;
+                dim_extent_alignment[split.inner] = split.factor;
 
-            Expr base = outer * split.factor + old_min;
-            string base_name = prefix + split.inner + ".base";
-            Expr base_var = Variable::make(Int(32), base_name);
-            string old_var_name = prefix + split.old_var;
-            Expr old_var = Variable::make(Int(32), old_var_name);
+                Expr base = outer * split.factor + old_min;
+                string base_name = prefix + split.inner + ".base";
+                Expr base_var = Variable::make(Int(32), base_name);
+                string old_var_name = prefix + split.old_var;
+                Expr old_var = Variable::make(Int(32), old_var_name);
 
-            map<string, Expr>::iterator iter = dim_extent_alignment.find(split.old_var);
+                map<string, Expr>::iterator iter = dim_extent_alignment.find(split.old_var);
 
-            if (is_update) {
-                user_assert(split.tail != TailStrategy::ShiftInwards)
-                    << "When splitting Var " << split.old_var
-                    << " ShiftInwards is not a legal tail strategy for update definitions, as"
-                    << " it may change the meaning of the algorithm\n";
-            }
-
-            if (split.exact) {
-                user_assert(split.tail == TailStrategy::Auto ||
-                            split.tail == TailStrategy::GuardWithIf)
-                    << "When splitting Var " << split.old_var
-                    << " the tail strategy must be GuardWithIf or Auto. "
-                    << "Anything else may change the meaning of the algorithm\n";
-            }
-
-            TailStrategy tail = split.tail;
-            if (tail == TailStrategy::Auto) {
-                if (split.exact) {
-                    tail = TailStrategy::GuardWithIf;
-                } else if (is_update) {
-                    tail = TailStrategy::RoundUp;
-                } else {
-                    tail = TailStrategy::ShiftInwards;
+                if (is_update) {
+                    user_assert(split.tail != TailStrategy::ShiftInwards)
+                        << "When splitting Var " << split.old_var
+                        << " ShiftInwards is not a legal tail strategy for update definitions, as"
+                        << " it may change the meaning of the algorithm\n";
                 }
-            }
 
-            if ((iter != dim_extent_alignment.end()) &&
-                is_zero(simplify(iter->second % split.factor))) {
-                // We have proved that the split factor divides the
-                // old extent. No need to adjust the base or add an if
-                // statement.
-                dim_extent_alignment[split.outer] = iter->second / split.factor;
-            } else if (is_negative_const(split.factor) || is_zero(split.factor)) {
-                user_error << "Can't split " << split.old_var << " by " << split.factor
-                           << ". Split factors must be strictly positive\n";
-            } else if (is_one(split.factor)) {
-                // The split factor trivially divides the old extent,
-                // but we know nothing new about the outer dimension.
-            } else if (tail == TailStrategy::GuardWithIf) {
-                // It's an exact split but we failed to prove that the
-                // extent divides the factor. Use predication.
+                if (split.exact) {
+                    user_assert(split.tail == TailStrategy::Auto ||
+                                split.tail == TailStrategy::GuardWithIf)
+                        << "When splitting Var " << split.old_var
+                        << " the tail strategy must be GuardWithIf or Auto. "
+                        << "Anything else may change the meaning of the algorithm\n";
+                }
 
-                // Make a var representing the original var minus its
-                // min. It's important that this is a single Var so
-                // that bounds inference has a chance of understanding
-                // what it means for it to be limited by the if
-                // statement's condition.
-                Expr rebased = outer * split.factor + inner;
-                string rebased_var_name = prefix + split.old_var + ".rebased";
-                Expr rebased_var = Variable::make(Int(32), rebased_var_name);
-                stmt = substitute(prefix + split.old_var, rebased_var + old_min, stmt);
+                TailStrategy tail = split.tail;
+                if (tail == TailStrategy::Auto) {
+                    if (split.exact) {
+                        tail = TailStrategy::GuardWithIf;
+                    } else if (is_update) {
+                        tail = TailStrategy::RoundUp;
+                    } else {
+                        tail = TailStrategy::ShiftInwards;
+                    }
+                }
 
-                // Tell Halide to optimize for the case in which this
-                // condition is true by partitioning some outer loop.
-                Expr cond = likely(rebased_var < old_extent);
-                stmt = IfThenElse::make(cond, stmt, Stmt());
-                stmt = LetStmt::make(rebased_var_name, rebased, stmt);
+                if ((iter != dim_extent_alignment.end()) &&
+                    is_zero(simplify(iter->second % split.factor))) {
+                    // We have proved that the split factor divides the
+                    // old extent. No need to adjust the base or add an if
+                    // statement.
+                    dim_extent_alignment[split.outer] = iter->second / split.factor;
+                } else if (is_negative_const(split.factor) || is_zero(split.factor)) {
+                    user_error << "Can't split " << split.old_var << " by " << split.factor
+                               << ". Split factors must be strictly positive\n";
+                } else if (is_one(split.factor)) {
+                    // The split factor trivially divides the old extent,
+                    // but we know nothing new about the outer dimension.
+                } else if (tail == TailStrategy::GuardWithIf) {
+                    // It's an exact split but we failed to prove that the
+                    // extent divides the factor. Use predication.
 
-            } else if (tail == TailStrategy::ShiftInwards) {
-                // Adjust the base downwards to not compute off the
-                // end of the realization.
+                    // Make a var representing the original var minus its
+                    // min. It's important that this is a single Var so
+                    // that bounds inference has a chance of understanding
+                    // what it means for it to be limited by the if
+                    // statement's condition.
+                    Expr rebased = outer * split.factor + inner;
+                    string rebased_var_name = prefix + split.old_var + ".rebased";
+                    Expr rebased_var = Variable::make(Int(32), rebased_var_name);
+                    stmt = substitute(prefix + split.old_var, rebased_var + old_min, stmt);
 
-                // We'll only mark the base as likely (triggering a loop
-                // partition) if we're at or inside the innermost
-                // non-trivial loop.
-                base = likely_if_innermost(base);
+                    // Tell Halide to optimize for the case in which this
+                    // condition is true by partitioning some outer loop.
+                    Expr cond = likely(rebased_var < old_extent);
+                    stmt = IfThenElse::make(cond, stmt, Stmt());
+                    stmt = LetStmt::make(rebased_var_name, rebased, stmt);
 
-                base = Min::make(base, old_max + (1 - split.factor));
+                } else if (tail == TailStrategy::ShiftInwards) {
+                    // Adjust the base downwards to not compute off the
+                    // end of the realization.
+
+                    // We'll only mark the base as likely (triggering a loop
+                    // partition) if we're at or inside the innermost
+                    // non-trivial loop.
+                    base = likely_if_innermost(base);
+
+                    base = Min::make(base, old_max + (1 - split.factor));
+                } else {
+                    internal_assert(tail == TailStrategy::RoundUp);
+                }
+
+                // Substitute in the new expression for the split variable ...
+                stmt = substitute(old_var_name, base_var + inner, stmt);
+                // ... but also define it as a let for the benefit of bounds inference.
+                stmt = LetStmt::make(old_var_name, base_var + inner, stmt);
+                stmt = LetStmt::make(base_name, base, stmt);
+
+            } else if (split.is_fuse()) {
+                // Define the inner and outer in terms of the fused var
+                Expr fused = Variable::make(Int(32), prefix + split.old_var);
+                Expr inner_min = Variable::make(Int(32), prefix + split.inner + ".loop_min");
+                Expr outer_min = Variable::make(Int(32), prefix + split.outer + ".loop_min");
+                Expr inner_extent = Variable::make(Int(32), prefix + split.inner + ".loop_extent");
+
+                // If the inner extent is zero, the loop will never be
+                // entered, but the bounds expressions lifted out might
+                // contain divides or mods by zero. In the cases where
+                // simplification of inner and outer matter, inner_extent
+                // is a constant, so the max will simplify away.
+                Expr factor = max(inner_extent, 1);
+                Expr inner = fused % factor + inner_min;
+                Expr outer = fused / factor + outer_min;
+
+                stmt = substitute(prefix + split.inner, inner, stmt);
+                stmt = substitute(prefix + split.outer, outer, stmt);
+                stmt = LetStmt::make(prefix + split.inner, inner, stmt);
+                stmt = LetStmt::make(prefix + split.outer, outer, stmt);
+
+                // Maintain the known size of the fused dim if
+                // possible. This is important for possible later splits.
+                map<string, Expr>::iterator inner_dim = dim_extent_alignment.find(split.inner);
+                map<string, Expr>::iterator outer_dim = dim_extent_alignment.find(split.outer);
+                if (inner_dim != dim_extent_alignment.end() &&
+                    outer_dim != dim_extent_alignment.end()) {
+                    dim_extent_alignment[split.old_var] = inner_dim->second*outer_dim->second;
+                }
             } else {
-                internal_assert(tail == TailStrategy::RoundUp);
+                // rename or purify
+                stmt = substitute(prefix + split.old_var, outer, stmt);
+                stmt = LetStmt::make(prefix + split.old_var, outer, stmt);
             }
-
-            // Substitute in the new expression for the split variable ...
-            stmt = substitute(old_var_name, base_var + inner, stmt);
-            // ... but also define it as a let for the benefit of bounds inference.
-            stmt = LetStmt::make(old_var_name, base_var + inner, stmt);
-            stmt = LetStmt::make(base_name, base, stmt);
-
-        } else if (split.is_fuse()) {
-            // Define the inner and outer in terms of the fused var
-            Expr fused = Variable::make(Int(32), prefix + split.old_var);
-            Expr inner_min = Variable::make(Int(32), prefix + split.inner + ".loop_min");
-            Expr outer_min = Variable::make(Int(32), prefix + split.outer + ".loop_min");
-            Expr inner_extent = Variable::make(Int(32), prefix + split.inner + ".loop_extent");
-
-            // If the inner extent is zero, the loop will never be
-            // entered, but the bounds expressions lifted out might
-            // contain divides or mods by zero. In the cases where
-            // simplification of inner and outer matter, inner_extent
-            // is a constant, so the max will simplify away.
-            Expr factor = max(inner_extent, 1);
-            Expr inner = fused % factor + inner_min;
-            Expr outer = fused / factor + outer_min;
-
-            stmt = substitute(prefix + split.inner, inner, stmt);
-            stmt = substitute(prefix + split.outer, outer, stmt);
-            stmt = LetStmt::make(prefix + split.inner, inner, stmt);
-            stmt = LetStmt::make(prefix + split.outer, outer, stmt);
-
-            // Maintain the known size of the fused dim if
-            // possible. This is important for possible later splits.
-            map<string, Expr>::iterator inner_dim = dim_extent_alignment.find(split.inner);
-            map<string, Expr>::iterator outer_dim = dim_extent_alignment.find(split.outer);
-            if (inner_dim != dim_extent_alignment.end() &&
-                outer_dim != dim_extent_alignment.end()) {
-                dim_extent_alignment[split.old_var] = inner_dim->second*outer_dim->second;
-            }
-        } else {
-            // rename or purify
-            stmt = substitute(prefix + split.old_var, outer, stmt);
-            stmt = LetStmt::make(prefix + split.old_var, outer, stmt);
         }
     }
 
@@ -316,34 +319,36 @@ Stmt build_provide_loop_nest_helper(string func_name,
     // Define the bounds on the split dimensions using the bounds
     // on the function args. If it is a purify, we should use the bounds
     // from the dims instead.
-    for (size_t i = splits.size(); i > 0; i--) {
-        const Split &split = splits[i-1];
-        Expr old_var_extent = Variable::make(Int(32), prefix + split.old_var + ".loop_extent");
-        Expr old_var_max = Variable::make(Int(32), prefix + split.old_var + ".loop_max");
-        Expr old_var_min = Variable::make(Int(32), prefix + split.old_var + ".loop_min");
-        if (split.is_split()) {
-            Expr inner_extent = split.factor;
-            Expr outer_extent = (old_var_max - old_var_min + split.factor)/split.factor;
-            stmt = LetStmt::make(prefix + split.inner + ".loop_min", 0, stmt);
-            stmt = LetStmt::make(prefix + split.inner + ".loop_max", inner_extent-1, stmt);
-            stmt = LetStmt::make(prefix + split.inner + ".loop_extent", inner_extent, stmt);
-            stmt = LetStmt::make(prefix + split.outer + ".loop_min", 0, stmt);
-            stmt = LetStmt::make(prefix + split.outer + ".loop_max", outer_extent-1, stmt);
-            stmt = LetStmt::make(prefix + split.outer + ".loop_extent", outer_extent, stmt);
-        } else if (split.is_fuse()) {
-            // Define bounds on the fused var using the bounds on the inner and outer
-            Expr inner_extent = Variable::make(Int(32), prefix + split.inner + ".loop_extent");
-            Expr outer_extent = Variable::make(Int(32), prefix + split.outer + ".loop_extent");
-            Expr fused_extent = inner_extent * outer_extent;
-            stmt = LetStmt::make(prefix + split.old_var + ".loop_min", 0, stmt);
-            stmt = LetStmt::make(prefix + split.old_var + ".loop_max", fused_extent - 1, stmt);
-            stmt = LetStmt::make(prefix + split.old_var + ".loop_extent", fused_extent, stmt);
-        } else if (split.is_rename()) {
-            stmt = LetStmt::make(prefix + split.outer + ".loop_min", old_var_min, stmt);
-            stmt = LetStmt::make(prefix + split.outer + ".loop_max", old_var_max, stmt);
-            stmt = LetStmt::make(prefix + split.outer + ".loop_extent", old_var_extent, stmt);
+    if (!compile_to_coli) {
+        for (size_t i = splits.size(); i > 0; i--) {
+            const Split &split = splits[i-1];
+            Expr old_var_extent = Variable::make(Int(32), prefix + split.old_var + ".loop_extent");
+            Expr old_var_max = Variable::make(Int(32), prefix + split.old_var + ".loop_max");
+            Expr old_var_min = Variable::make(Int(32), prefix + split.old_var + ".loop_min");
+            if (split.is_split()) {
+                Expr inner_extent = split.factor;
+                Expr outer_extent = (old_var_max - old_var_min + split.factor)/split.factor;
+                stmt = LetStmt::make(prefix + split.inner + ".loop_min", 0, stmt);
+                stmt = LetStmt::make(prefix + split.inner + ".loop_max", inner_extent-1, stmt);
+                stmt = LetStmt::make(prefix + split.inner + ".loop_extent", inner_extent, stmt);
+                stmt = LetStmt::make(prefix + split.outer + ".loop_min", 0, stmt);
+                stmt = LetStmt::make(prefix + split.outer + ".loop_max", outer_extent-1, stmt);
+                stmt = LetStmt::make(prefix + split.outer + ".loop_extent", outer_extent, stmt);
+            } else if (split.is_fuse()) {
+                // Define bounds on the fused var using the bounds on the inner and outer
+                Expr inner_extent = Variable::make(Int(32), prefix + split.inner + ".loop_extent");
+                Expr outer_extent = Variable::make(Int(32), prefix + split.outer + ".loop_extent");
+                Expr fused_extent = inner_extent * outer_extent;
+                stmt = LetStmt::make(prefix + split.old_var + ".loop_min", 0, stmt);
+                stmt = LetStmt::make(prefix + split.old_var + ".loop_max", fused_extent - 1, stmt);
+                stmt = LetStmt::make(prefix + split.old_var + ".loop_extent", fused_extent, stmt);
+            } else if (split.is_rename()) {
+                stmt = LetStmt::make(prefix + split.outer + ".loop_min", old_var_min, stmt);
+                stmt = LetStmt::make(prefix + split.outer + ".loop_max", old_var_max, stmt);
+                stmt = LetStmt::make(prefix + split.outer + ".loop_extent", old_var_extent, stmt);
+            }
+            // Do nothing for purify
         }
-        // Do nothing for purify
     }
 
     // Define the bounds on the outermost dummy dimension.
@@ -385,7 +390,8 @@ Stmt build_provide_loop_nest(string func_name,
                              string prefix,
                              const vector<string> &dims,
                              const Definition &def,
-                             bool is_update) {
+                             bool is_update,
+                             bool compile_to_coli) {
 
     internal_assert(!is_update == def.is_init());
 
@@ -409,7 +415,7 @@ Stmt build_provide_loop_nest(string func_name,
 
     // Default schedule/values if there is no specialization
     Stmt stmt = build_provide_loop_nest_helper(
-        func_name, prefix, dims, site, values, def.split_predicate(), def.schedule(), is_update);
+        func_name, prefix, dims, site, values, def.split_predicate(), def.schedule(), is_update, compile_to_coli);
 
     // Make any specialized copies
     const vector<Specialization> &specializations = def.specializations();
@@ -418,7 +424,7 @@ Stmt build_provide_loop_nest(string func_name,
         const Definition &s_def = specializations[i-1].definition;
 
         Stmt then_case =
-            build_provide_loop_nest(func_name, prefix, dims, s_def, is_update);
+            build_provide_loop_nest(func_name, prefix, dims, s_def, is_update, compile_to_coli);
 
         stmt = IfThenElse::make(c, then_case, stmt);
     }
@@ -432,7 +438,7 @@ Stmt build_provide_loop_nest(string func_name,
 // which it should be realized. It will compute at least those
 // bounds (depending on splits, it may compute more). This loop
 // won't do any allocation.
-Stmt build_produce(Function f, const Target &target) {
+Stmt build_produce(Function f, const Target &target, bool compile_to_coli) {
 
     if (f.has_extern_definition()) {
         // Call the external function
@@ -603,12 +609,12 @@ Stmt build_produce(Function f, const Target &target) {
 
         string prefix = f.name() + ".s0.";
         vector<string> dims = f.args();
-        return build_provide_loop_nest(f.name(), prefix, dims, f.definition(), false);
+        return build_provide_loop_nest(f.name(), prefix, dims, f.definition(), false, compile_to_coli);
     }
 }
 
 // Build the loop nests that update a function (assuming it's a reduction).
-vector<Stmt> build_update(Function f) {
+vector<Stmt> build_update(Function f, bool compile_to_coli) {
 
     vector<Stmt> updates;
 
@@ -618,16 +624,16 @@ vector<Stmt> build_update(Function f) {
         string prefix = f.name() + ".s" + std::to_string(i+1) + ".";
 
         vector<string> dims = f.args();
-        Stmt loop = build_provide_loop_nest(f.name(), prefix, dims, def, true);
+        Stmt loop = build_provide_loop_nest(f.name(), prefix, dims, def, true, compile_to_coli);
         updates.push_back(loop);
     }
 
     return updates;
 }
 
-pair<Stmt, Stmt> build_production(Function func, const Target &target) {
-    Stmt produce = build_produce(func, target);
-    vector<Stmt> updates = build_update(func);
+pair<Stmt, Stmt> build_production(Function func, const Target &target, bool compile_to_coli) {
+    Stmt produce = build_produce(func, target, compile_to_coli);
+    vector<Stmt> updates = build_update(func, compile_to_coli);
 
     // Combine the update steps
     Stmt merged_updates = Block::make(updates);
@@ -708,18 +714,19 @@ public:
     const Function &func;
     bool is_output, found_store_level, found_compute_level;
     const Target &target;
+    const bool compile_to_coli;
 
-    InjectRealization(const Function &f, bool o, const Target &t) :
+    InjectRealization(const Function &f, bool o, const Target &t, bool compile_to_coli) :
         func(f), is_output(o),
         found_store_level(false), found_compute_level(false),
-        target(t) {}
+        target(t), compile_to_coli(compile_to_coli) {}
 
 private:
 
     string producing;
 
     Stmt build_pipeline(Stmt s) {
-        pair<Stmt, Stmt> realization = build_production(func, target);
+        pair<Stmt, Stmt> realization = build_production(func, target, compile_to_coli);
 
         Stmt producer;
         if (realization.first.defined() && realization.second.defined()) {
@@ -1218,6 +1225,7 @@ Stmt schedule_functions(const vector<Function> &outputs,
                         const vector<string> &order,
                         const map<string, Function> &env,
                         const Target &target,
+                        bool compile_to_coli,
                         bool &any_memoized) {
 
     string root_var = LoopLevel::root().to_string();
@@ -1241,7 +1249,7 @@ Stmt schedule_functions(const vector<Function> &outputs,
             s = inline_function(s, f);
         } else {
             debug(1) << "Injecting realization of " << order[i-1] << '\n';
-            InjectRealization injector(f, is_output, target);
+            InjectRealization injector(f, is_output, target, compile_to_coli);
             s = injector.mutate(s);
             internal_assert(injector.found_store_level && injector.found_compute_level);
         }

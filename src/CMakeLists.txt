@@ -222,6 +222,7 @@ set(HEADER_FILES
   Closure.h
   CodeGen_ARM.h
   CodeGen_C.h
+  CodeGen_Coli.h
   CodeGen_GPU_Dev.h
   CodeGen_GPU_Host.h
   CodeGen_Hexagon.h
@@ -378,6 +379,7 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   Closure.cpp
   CodeGen_ARM.cpp
   CodeGen_C.cpp
+  CodeGen_Coli.cpp
   CodeGen_GPU_Dev.cpp
   CodeGen_GPU_Host.cpp
   CodeGen_Hexagon.cpp
@@ -592,7 +594,7 @@ set(LLVM_CONFIG ${LLVM_BIN}/llvm-config)
 if(MSVC)
   file(GLOB LIBS "${LLVM_LIB}/LLVM*.lib")
 else()
-  execute_process(COMMAND "${LLVM_CONFIG}" --libfiles ${LLVM_COMPONENTS} 
+  execute_process(COMMAND "${LLVM_CONFIG}" --libfiles ${LLVM_COMPONENTS}
                   RESULT_VARIABLE LLVM_CONFIG_RESULT
                   OUTPUT_VARIABLE LIBS_UNSTRIPPED
                   ERROR_VARIABLE LLVM_CONFIG_ERROR)

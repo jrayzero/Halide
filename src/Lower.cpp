@@ -65,7 +65,8 @@ using std::string;
 using std::vector;
 using std::map;
 
-Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &t, const vector<IRMutator *> &custom_passes) {
+Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &t,
+           const vector<IRMutator *> &custom_passes, bool compile_to_coli) {
 
     // Compute an environment
     map<string, Function> env;
@@ -90,7 +91,7 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     bool any_memoized = false;
 
     debug(1) << "Creating initial loop nests...\n";
-    Stmt s = schedule_functions(outputs, order, env, t, any_memoized);
+    Stmt s = schedule_functions(outputs, order, env, t, compile_to_coli, any_memoized);
     debug(2) << "Lowering after creating initial loop nests:\n" << s << '\n';
 
     if (any_memoized) {
@@ -109,20 +110,24 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     s = inject_tracing(s, pipeline_name, env, outputs);
     debug(2) << "Lowering after injecting tracing:\n" << s << '\n';
 
-    debug(1) << "Adding checks for parameters\n";
-    s = add_parameter_checks(s, t);
-    debug(2) << "Lowering after injecting parameter checks:\n" << s << '\n';
+    if (!compile_to_coli) {
+        debug(1) << "Adding checks for parameters\n";
+        s = add_parameter_checks(s, t);
+        debug(2) << "Lowering after injecting parameter checks:\n" << s << '\n';
+    }
 
     // Compute the maximum and minimum possible value of each
     // function. Used in later bounds inference passes.
     debug(1) << "Computing bounds of each function's value\n";
     FuncValueBounds func_bounds = compute_function_value_bounds(order, env);
 
-    // The checks will be in terms of the symbols defined by bounds
-    // inference.
-    debug(1) << "Adding checks for images\n";
-    s = add_image_checks(s, outputs, t, order, env, func_bounds);
-    debug(2) << "Lowering after injecting image checks:\n" << s << '\n';
+    if (!compile_to_coli) {
+        // The checks will be in terms of the symbols defined by bounds
+        // inference.
+        debug(1) << "Adding checks for images\n";
+        s = add_image_checks(s, outputs, t, order, env, func_bounds);
+        debug(2) << "Lowering after injecting image checks:\n" << s << '\n';
+    }
 
     // This pass injects nested definitions of variable names, so we
     // can't simplify statements from here until we fix them up. (We
@@ -170,6 +175,11 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
         debug(1) << "Injecting image intrinsics...\n";
         s = inject_image_intrinsics(s, env);
         debug(2) << "Lowering after image intrinsics:\n" << s << "\n\n";
+    }
+
+    if (compile_to_coli) {
+        // Storage flattening, etc, should be done by COLi
+        return s;
     }
 
     debug(1) << "Performing storage flattening...\n";

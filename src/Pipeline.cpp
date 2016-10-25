@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <fstream>
 
 #include "Pipeline.h"
 #include "Argument.h"
@@ -9,6 +10,7 @@
 #include "Lower.h"
 #include "Outputs.h"
 #include "PrintLoopNest.h"
+#include "CodeGen_Coli.h"
 
 using namespace Halide::Internal;
 
@@ -232,6 +234,82 @@ void Pipeline::compile_to_c(const string &filename,
                             const Target &target) {
     Module m = compile_to_module(args, fn_name, target);
     m.compile(Outputs().c_source(output_name(filename, m, ".c")));
+}
+
+void Pipeline::compile_to_coli(Realization dst,
+                               const string &filename,
+                               const vector<Argument> &args,
+                               const string &fn_name,
+                               const Target &target) {
+
+    string name = output_name(filename, fn_name, ".cpp");
+    debug(0) << "Compile to pipeline " << fn_name << " to COLi " << name << "\n";
+
+    user_assert(defined()) << "Can't compile undefined Pipeline\n";
+    string new_fn_name(fn_name);
+    if (new_fn_name.empty()) {
+        new_fn_name = generate_function_name();
+    }
+    internal_assert(!new_fn_name.empty()) << "new_fn_name cannot be empty\n";
+
+    vector<IRMutator *> custom_passes;
+    for (CustomLoweringPass p : contents->custom_lowering_passes) {
+        custom_passes.push_back(p.pass);
+    }
+
+    Stmt body = lower(contents->outputs, fn_name, target, custom_passes, true);
+
+    // Get all the arguments/global images referenced in this function.
+    vector<Argument> public_args = build_public_args(args, target);
+    vector<BufferPtr> global_images = validate_arguments(public_args, body);
+
+    internal_assert(contents->outputs.size() == dst.size());
+
+    vector<vector<int32_t>> output_buffer_extents(contents->outputs.size());
+    vector<Type> output_buffer_types(contents->outputs.size());
+    for (size_t i = 0; i < dst.size(); ++i) {
+        BufferPtr buf = dst[i];
+        output_buffer_types[i] = buf.type();
+        for (int j = 0; j < buf.dimensions(); ++j) {
+            Expr min_expr = buf.dim(i).min();
+            Expr extent_expr = buf.dim(i).extent();
+            const IntImm *min = min_expr.as<IntImm>();
+            const IntImm *extent = extent_expr.as<IntImm>();
+            internal_assert((min != nullptr) && (extent != nullptr));
+            internal_assert(min->value == 0);
+            internal_assert(extent->value > 0);
+            output_buffer_extents[i].push_back(extent->value);
+        }
+    }
+
+    vector<string> inputs;
+    vector<vector<int32_t>> input_buffer_extents;
+    vector<Type> input_buffer_types;
+
+    for (BufferPtr buf : global_images) {
+        inputs.push_back(buf.name());
+        input_buffer_types.push_back(buf.type());
+        vector<int32_t> buffer_extents;
+        for (int i = 0; i < buf.dimensions(); ++i) {
+            Expr min_expr = buf.dim(i).min();
+            Expr extent_expr = buf.dim(i).extent();
+            const IntImm *min = min_expr.as<IntImm>();
+            const IntImm *extent = extent_expr.as<IntImm>();
+            internal_assert((min != nullptr) && (extent != nullptr));
+            internal_assert(min->value == 0);
+            internal_assert(extent->value > 0);
+            buffer_extents.push_back(extent->value);
+        }
+        input_buffer_extents.push_back(buffer_extents);
+    }
+
+    //std::ofstream file(name);
+    std::ostringstream stream;
+
+    Internal::print_to_coli(body, stream, fn_name, contents->outputs,
+                            output_buffer_extents, output_buffer_types,
+                            inputs, input_buffer_extents, input_buffer_types);
+    debug(0) << "Generated COLi:\n" << stream.str() << "\n";
 }
 
 void Pipeline::print_loop_nest() {
@@ -911,7 +989,7 @@ struct JITFuncCallContext {
 
 // Make a vector of void *'s to pass to the jit call using the
 // currently bound value for all of the params and image
-// params. 
+// params.
 vector<const void *> Pipeline::prepare_jit_call_arguments(Realization dst, const Target &target) {
     user_assert(defined()) << "Can't realize an undefined Pipeline\n";
 
