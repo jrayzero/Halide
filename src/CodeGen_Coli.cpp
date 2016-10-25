@@ -699,13 +699,13 @@ void CodeGen_Coli::visit(const Provide *op) {
     string dims_str = to_string(op->args);
     string symbolic_str = get_loop_bound_vars();
     if (!symbolic_str.empty()) {
-        stream << get_loop_bound_vars() + "->{" << op->name + dims_str << ": \n";
+        stream << get_loop_bound_vars() + "->{" << op->name + dims_str << ": \"\n";
     } else {
-        stream << "{" << op->name << dims_str + ": \n";
+        stream << "{" << op->name << dims_str + ": \"\n";
     }
 
     do_indent();
-    stream << get_loop_bounds() << "}\", \n";
+    stream << "\"" << get_loop_bounds() << "}\", \n";
     do_indent();
     print(op->values[0]);
     stream << ", true, " << halide_type_to_coli_type_str(op->values[0].type())
