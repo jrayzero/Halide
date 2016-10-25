@@ -16,6 +16,23 @@ using std::vector;
 using std::ostringstream;
 using std::map;
 
+namespace {
+const string headers =
+    "#include <isl/set.h>\n"
+    "#include <isl/union_map.h>\n"
+    "#include <isl/union_set.h>\n"
+    "#include <isl/ast_build.h>\n"
+    "#include <isl/schedule.h>\n"
+    "#include <isl/schedule_node.h>\n\n"
+    "#include <coli/debug.h>\n"
+    "#include <coli/core.h>\n\n"
+    "#include <string.h>\n"
+    "#include <Halide.h>\n"
+    "#include \"halide_image_io.h\"\n";
+
+const int tab_size = 4;
+}
+
 template<typename T>
 std::string to_string(const std::vector<T>& v) {
     std::ostringstream ss;
@@ -173,6 +190,18 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
     internal_assert(inputs.size() == input_buffer_extents.size());
     internal_assert(input_buffer_extents.size() == input_buffer_types.size());
 
+    stream << headers << "\n\n";
+    stream << "using namespace coli;\n\n";
+    stream << "int main(int argc, char **argv)\n";
+    stream << "{\n";
+
+    indent += tab_size;
+
+    do_indent();
+    stream << "// Set default coli options.\n";
+    do_indent();
+    stream << "global::set_default_coli_options();\n\n";
+    do_indent();
     stream << "coli::function " << func << "(\"" << func << "\")" << ";\n";
 
     // Allocate the output buffers
@@ -198,6 +227,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
         sizes << "}";
 
         string buffer_name = "buff_" + f.name();
+        do_indent();
         stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
                << f.args().size() << ", " << sizes.str() << ", "
                << halide_type_to_coli_type_str(type) << ", NULL, coli::a_output, "
@@ -227,6 +257,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
         sizes << "}";
 
         string buffer_name = "buff_" + input_name;
+        do_indent();
         stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
                << buffer_extents.size() << ", " << sizes.str() << ", "
                << halide_type_to_coli_type_str(type) << ", NULL, coli::a_input, "
@@ -244,13 +275,16 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
             iter_space_str = "{" + input_name + dims_str + ": " + get_loop_bounds() + "}";
         }
 
+        do_indent();
         stream << "coli::computation " << input_name << "(\"" << iter_space_str << "\", "
                << "expr(), false, " << halide_type_to_coli_type_str(type)
                << ", &" << func << ");\n";
 
         // 1-to-1 mapping to buffer
         string access_str = "{" + input_name + dims_str + "->" + "buff_" + input_name + dims_str + "}";
+        do_indent();
         stream << input_name << ".set_access(\"" << access_str << "\");\n";
+        stream << "\n";
 
         computation_list.insert(input_name);
 
@@ -286,11 +320,22 @@ CodeGen_Coli::~CodeGen_Coli() {
     }
     buffers_stream << "}";
 
+    stream << "\n";
+    do_indent();
     stream << func << ".set_arguments(" << buffers_stream.str() << ");\n";
+    do_indent();
     stream << func << ".gen_isl_ast();\n";
+    do_indent();
     stream << func << ".gen_halide_stmt();\n";
+    do_indent();
     stream << func << ".dump_halide_stmt();\n";
+    do_indent();
     stream << func << ".gen_halide_obj(\"build/generated_" << func << "_test.o\");\n";
+
+    indent -= tab_size;
+
+    do_indent();
+    stream << "}\n\n";
 }
 
 void CodeGen_Coli::push_loop_dim(const string &name, Expr min, Expr extent) {
@@ -545,6 +590,7 @@ void CodeGen_Coli::visit(const Not *op) {
 }
 
 void CodeGen_Coli::visit(const Select *op) {
+    do_indent();
     stream << "coli::expr(coli::o_cond, ";
     print(op->condition);
     stream << ", ";
@@ -581,7 +627,6 @@ void CodeGen_Coli::define_constant(const string &name, Expr val) {
     val = simplify(val);
 
     do_indent();
-
     stream << "coli::constant " << name << "(\"" << name << "\", ";
     print(val);
     stream << ", " << halide_type_to_coli_type_str(val.type())
@@ -617,8 +662,11 @@ void CodeGen_Coli::visit(const For *op) {
     extent_val = substitute(replacements, extent_val);
     extent_val = substitute(replacements, extent_val);
 
+    do_indent();
+    stream << "// Define loop bounds for dimension \"" << op->name << "\".\n";
     define_constant(min->name, min_val);
     define_constant(extent->name, extent_val);
+    stream << "\n";
 
     print(op->body);
     pop_loop_dim();
@@ -645,23 +693,28 @@ void CodeGen_Coli::visit(const Provide *op) {
     user_assert(op->values.size() == 1) << "Expect 1D store (no tuple) in the Provide node for now.\n";
 
     do_indent();
+    stream << "coli::computation " << op->name << "(\"";
+    indent += 5*tab_size;
 
     string dims_str = to_string(op->args);
     string symbolic_str = get_loop_bound_vars();
-    string iter_space_str;
     if (!symbolic_str.empty()) {
-        iter_space_str = get_loop_bound_vars() + "->{" + op->name + dims_str + ": " + get_loop_bounds() + "}";
+        stream << get_loop_bound_vars() + "->{" << op->name + dims_str << ": \n";
     } else {
-        iter_space_str = "{" + op->name + dims_str + ": " + get_loop_bounds() + "}";
+        stream << "{" << op->name << dims_str + ": \n";
     }
 
-    stream << "coli::computation " << op->name << "(\"" << iter_space_str << "\", ";
+    do_indent();
+    stream << get_loop_bounds() << "}\", \n";
+    do_indent();
     print(op->values[0]);
     stream << ", true, " << halide_type_to_coli_type_str(op->values[0].type())
            << ", &" << func << ");\n";
+    indent -= 5*tab_size;
 
     // 1-to-1 mapping to buffer
     string access_str = "{" + op->name + dims_str + "->" + "buff_" + op->name + dims_str + "}";
+    do_indent();
     stream << op->name << ".set_access(\"" << access_str << "\");\n";
 
     computation_list.insert(op->name);
@@ -690,6 +743,7 @@ void CodeGen_Coli::visit(const Realize *op) {
     // Create a temporary buffer
 
     string buffer_name = "buff_" + op->name;
+    do_indent();
     stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
            << op->bounds.size() << ", ";
 
