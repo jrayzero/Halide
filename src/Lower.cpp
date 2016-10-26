@@ -66,7 +66,9 @@ using std::vector;
 using std::map;
 
 Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &t,
-           const vector<IRMutator *> &custom_passes, bool compile_to_coli) {
+           vector<Function> &func_order, map<string, Schedule> &schedules,
+           const vector<IRMutator *> &custom_passes,
+           bool compile_to_coli) {
 
     // Compute an environment
     map<string, Function> env;
@@ -91,7 +93,7 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     bool any_memoized = false;
 
     debug(1) << "Creating initial loop nests...\n";
-    Stmt s = schedule_functions(outputs, order, env, t, compile_to_coli, any_memoized);
+    Stmt s = schedule_functions(outputs, order, env, t, compile_to_coli, schedules, any_memoized);
     debug(2) << "Lowering after creating initial loop nests:\n" << s << '\n';
 
     if (any_memoized) {
@@ -297,6 +299,8 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
             debug(1) << "Lowering after custom pass " << i << ":\n" << s << "\n\n";
         }
     }
+
+    //
 
     return s;
 }

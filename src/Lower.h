@@ -19,6 +19,7 @@ class IRMutator;
  * evaluates it. Automatically pulls in all the functions f depends
  * on. Some stages of lowering may be target-specific. */
 EXPORT Stmt lower(std::vector<Function> outputs, const std::string &pipeline_name, const Target &t,
+                  std::vector<Function> &func_order, std::map<std::string, Schedule> &schedules,
                   const std::vector<IRMutator *> &custom_passes = std::vector<IRMutator *>(),
                   bool compile_to_coli = false);
 

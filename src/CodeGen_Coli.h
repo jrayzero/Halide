@@ -9,6 +9,7 @@
 #include "IRPrinter.h"
 #include "Function.h"
 #include "Scope.h"
+#include "Schedule.h"
 #include "Simplify.h"
 
 namespace Halide {
@@ -31,7 +32,9 @@ public:
                  const std::vector<Type> &output_buffer_types,
                  const std::vector<std::string> &inputs,
                  const std::vector<std::vector<int32_t>> &input_buffer_extents,
-                 const std::vector<Type> &input_buffer_types);
+                 const std::vector<Type> &input_buffer_types,
+                 const std::vector<Function> &order,
+                 const std::map<std::string, Schedule> &schedules);
     ~CodeGen_Coli();
 
     void print(Expr e);
@@ -53,6 +56,8 @@ private:
     };
 
     std::string func; // Represent one Halide pipeline
+    const std::vector<Function> &order;
+    const std::map<std::string, Schedule> &schedules;
 
     std::set<std::string> output_buffers;
     std::set<std::string> input_buffers;
@@ -67,6 +72,7 @@ private:
     std::string get_loop_bound_vars() const;
     std::string get_loop_bounds() const;
     void define_constant(const std::string &name, Expr value);
+    void generate_schedule();
 
 protected:
     using IRPrinter::visit;
@@ -124,7 +130,9 @@ EXPORT void print_to_coli(
     const std::vector<Type> &output_buffer_types,
     const std::vector<std::string> &inputs,
     const std::vector<std::vector<int32_t>> &input_buffer_extents,
-    const std::vector<Type> &input_buffer_types);
+    const std::vector<Type> &input_buffer_types,
+    const std::vector<Function> &order,
+    const std::map<std::string, Schedule> &schedules);
 
 }
 }

@@ -12,6 +12,8 @@
 #include "IRPrinter.h"
 #include "Func.h"
 
+#include <iostream>
+
 namespace Halide {
 namespace Internal {
 
@@ -33,6 +35,27 @@ struct Container {
     string name;
     Expr value;
 };
+
+string print_name(const string &name) {
+    std::ostringstream oss;
+
+    // Prefix an underscore to avoid reserved words (e.g. a variable named "while")
+    if (isalpha(name[0])) {
+        oss << '_';
+    }
+
+    for (size_t i = 0; i < name.size(); i++) {
+        if (name[i] == '.') {
+            oss << '_';
+        } else if (name[i] == '$') {
+            oss << "__";
+        } else if (name[i] != '_' && !isalnum(name[i])) {
+            oss << "___";
+        }
+        else oss << name[i];
+    }
+    return oss.str();
+}
 }
 
 class ContainsImpureCall : public IRVisitor {
@@ -631,7 +654,13 @@ vector<Stmt> build_update(Function f, bool compile_to_coli) {
     return updates;
 }
 
-pair<Stmt, Stmt> build_production(Function func, const Target &target, bool compile_to_coli) {
+pair<Stmt, Stmt> build_production(Function func, const Target &target, bool compile_to_coli,
+                                  map<string, Schedule> schedules) {
+    if (compile_to_coli) {
+        internal_assert(func.updates().empty());
+    }
+    schedules.emplace(func.name(), func.definition().schedule());
+
     Stmt produce = build_produce(func, target, compile_to_coli);
     vector<Stmt> updates = build_update(func, compile_to_coli);
 
@@ -715,18 +744,20 @@ public:
     bool is_output, found_store_level, found_compute_level;
     const Target &target;
     const bool compile_to_coli;
+    map<string, Schedule> schedules;
 
-    InjectRealization(const Function &f, bool o, const Target &t, bool compile_to_coli) :
+    InjectRealization(const Function &f, bool o, const Target &t, bool compile_to_coli,
+                      map<string, Schedule> schedules) :
         func(f), is_output(o),
         found_store_level(false), found_compute_level(false),
-        target(t), compile_to_coli(compile_to_coli) {}
+        target(t), compile_to_coli(compile_to_coli), schedules(schedules) {}
 
 private:
 
     string producing;
 
     Stmt build_pipeline(Stmt s) {
-        pair<Stmt, Stmt> realization = build_production(func, target, compile_to_coli);
+        pair<Stmt, Stmt> realization = build_production(func, target, compile_to_coli, schedules);
 
         Stmt producer;
         if (realization.first.defined() && realization.second.defined()) {
@@ -1226,6 +1257,7 @@ Stmt schedule_functions(const vector<Function> &outputs,
                         const map<string, Function> &env,
                         const Target &target,
                         bool compile_to_coli,
+                        map<string, Schedule> &schedules,
                         bool &any_memoized) {
 
     string root_var = LoopLevel::root().to_string();
@@ -1249,7 +1281,7 @@ Stmt schedule_functions(const vector<Function> &outputs,
             s = inline_function(s, f);
         } else {
             debug(1) << "Injecting realization of " << order[i-1] << '\n';
-            InjectRealization injector(f, is_output, target, compile_to_coli);
+            InjectRealization injector(f, is_output, target, compile_to_coli, schedules);
             s = injector.mutate(s);
             internal_assert(injector.found_store_level && injector.found_compute_level);
         }

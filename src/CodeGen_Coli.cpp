@@ -182,8 +182,10 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
                            const vector<Type> &output_buffer_types,
                            const vector<string> &inputs,
                            const vector<vector<int32_t>> &input_buffer_extents,
-                           const vector<Type> &input_buffer_types)
-        : IRPrinter(dest), func(pipeline_name) {
+                           const vector<Type> &input_buffer_types,
+                           const vector<Function> &order,
+                           const map<string, Schedule> &schedules)
+        : IRPrinter(dest), func(pipeline_name), order(order), schedules(schedules) {
 
     internal_assert(outputs.size() == output_buffer_extents.size());
     internal_assert(output_buffer_extents.size() == output_buffer_types.size());
@@ -294,27 +296,40 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
     }
 }
 
+void CodeGen_Coli::generate_schedule() {
+    // TODO(psuriana): Add the realization order and schedules
+    for (const auto &f : order) {
+        debug(5) << "Func " << f.name() << "\n";
+    }
+    for (const auto &iter : schedules) {
+        debug(5) << "Schedule for Func " << iter.first << "\n";
+    }
+}
+
 CodeGen_Coli::~CodeGen_Coli() {
+    generate_schedule();
+
+    // Bind the output and input buffers
     ostringstream buffers_stream;
     buffers_stream << "{";
     int count = 0;
-    // Allocate the output buffers
-    for (auto it = output_buffers.begin(); it != output_buffers.end(); ++it) {
+    // Input buffers
+    for (auto it = input_buffers.begin(); it != input_buffers.end(); ++it) {
         count += 1;
         buffers_stream << "&" << (*it);
-        if (it != (--output_buffers.end())) {
+        if (it != (--input_buffers.end())) {
             buffers_stream << ", ";
         }
     }
+    // Output buffers
     bool start = true;
-    // Allocate the input buffers
-    for (auto it = input_buffers.begin(); it != input_buffers.end(); ++it) {
+    for (auto it = output_buffers.begin(); it != output_buffers.end(); ++it) {
         if ((count > 0) && start) {
             start = false;
             buffers_stream << ", ";
         }
         buffers_stream << "&" << (*it);
-        if (it != (--input_buffers.end())) {
+        if (it != (--output_buffers.end())) {
             buffers_stream << ", ";
         }
     }
@@ -380,8 +395,7 @@ void CodeGen_Coli::visit(const StringImm *op) {
 }
 
 void CodeGen_Coli::visit(const AssertStmt *op) {
-    // Do nothing
-    debug(5) << "Conversion of AssertStmt to COLi is not supported.\n";
+    user_error << "Conversion of AssertStmt to COLi is not supported.\n";
 }
 
 void CodeGen_Coli::visit(const Ramp *op) {
@@ -393,9 +407,7 @@ void CodeGen_Coli::visit(const Broadcast *op) {
 }
 
 void CodeGen_Coli::visit(const IfThenElse *op) {
-    debug(5) << "Conversion of IfThenElse to COLi is not supported.\n";
-    // Just use the "then" case for now
-    print(op->then_case);
+    user_error << "Conversion of IfThenElse to COLi is not supported.\n";
 }
 
 void CodeGen_Coli::visit(const Free *op) {
@@ -765,22 +777,38 @@ void CodeGen_Coli::visit(const Realize *op) {
 }
 
 void CodeGen_Coli::visit(const Call *op) {
-    user_assert((op->call_type == Call::CallType::Halide) || (op->call_type == Call::CallType::Image))
-        << "Only handle call to halide func or image for now.\n"
-        << Expr(op) << "\n"
-        << "is pure? " << op->is_pure() << "\n";
+    if (op->is_intrinsic(Call::shift_right)) {
+        internal_assert(op->args.size() == 2);
+        stream << '(';
+        print(op->args[0]);
+        stream << " >> ";
+        print(op->args[1]);
+        stream << ')';
+    } else if (op->is_intrinsic(Call::shift_left)) {
+        internal_assert(op->args.size() == 2);
+        stream << '(';
+        print(op->args[0]);
+        stream << " << ";
+        print(op->args[1]);
+        stream << ')';
+    } else {
+        user_assert((op->call_type == Call::CallType::Halide) || (op->call_type == Call::CallType::Image))
+            << "Only handle call to halide func or image for now.\n"
+            << Expr(op) << "\n"
+            << "is pure? " << op->is_pure() << "\n";
 
-    const auto iter = computation_list.find(op->name);
-    internal_assert(iter != computation_list.end()) << "Call to computation that does not exist.\n";
+        const auto iter = computation_list.find(op->name);
+        internal_assert(iter != computation_list.end()) << "Call to computation that does not exist.\n";
 
-    stream << (*iter) << "(";
-    for (size_t i = 0; i < op->args.size(); i++) {
-        print(op->args[i]);
-        if (i < op->args.size() - 1) {
-            stream << ", ";
+        stream << (*iter) << "(";
+        for (size_t i = 0; i < op->args.size(); i++) {
+            print(op->args[i]);
+            if (i < op->args.size() - 1) {
+                stream << ", ";
+            }
         }
+        stream << ")";
     }
-    stream << ")";
 }
 
 void CodeGen_Coli::visit(const Block *op) {
@@ -799,7 +827,9 @@ void print_to_coli(Stmt s, ostream &dest, const string &pipeline_name,
                    const vector<Type> &output_buffer_types,
                    const vector<string> &inputs,
                    const vector<vector<int32_t>> &input_buffer_extents,
-                   const vector<Type> &input_buffer_types) {
+                   const vector<Type> &input_buffer_types,
+                   const vector<Function> &order,
+                   const map<string, Schedule> &schedules) {
 
     NormalizeVariableName normalize;
     s = normalize.mutate(s);
@@ -807,7 +837,7 @@ void print_to_coli(Stmt s, ostream &dest, const string &pipeline_name,
 
     CodeGen_Coli cg(dest, pipeline_name, outputs, output_buffer_extents,
                     output_buffer_types, inputs, input_buffer_extents,
-                    input_buffer_types);
+                    input_buffer_types, order, schedules);
     cg.print(s);
 }
 

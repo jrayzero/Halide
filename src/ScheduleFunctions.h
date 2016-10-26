@@ -27,6 +27,7 @@ Stmt schedule_functions(const std::vector<Function> &outputs,
                         const std::map<std::string, Function> &env,
                         const Target &target,
                         bool compile_to_coli,
+                        std::map<std::string, Schedule> &schedules,
                         bool &any_memoized);
 
 
