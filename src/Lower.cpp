@@ -96,26 +96,28 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     Stmt s = schedule_functions(outputs, order, env, t, compile_to_coli, schedules, any_memoized);
     debug(2) << "Lowering after creating initial loop nests:\n" << s << '\n';
 
-    if (any_memoized) {
-        debug(1) << "Injecting memoization...\n";
-        s = inject_memoization(s, env, pipeline_name, outputs);
-        debug(2) << "Lowering after injecting memoization:\n" << s << '\n';
-    } else {
-        debug(1) << "Skipping injecting memoization...\n";
-    }
-
-    debug(1) << "Injecting prefetches...\n";
-    s = inject_prefetch(s, env);
-    debug(2) << "Lowering after injecting prefetches:\n" << s << "\n\n";
-
-    debug(1) << "Injecting tracing...\n";
-    s = inject_tracing(s, pipeline_name, env, outputs);
-    debug(2) << "Lowering after injecting tracing:\n" << s << '\n';
-
     if (!compile_to_coli) {
-        debug(1) << "Adding checks for parameters\n";
-        s = add_parameter_checks(s, t);
-        debug(2) << "Lowering after injecting parameter checks:\n" << s << '\n';
+        if (any_memoized) {
+            debug(1) << "Injecting memoization...\n";
+            s = inject_memoization(s, env, pipeline_name, outputs);
+            debug(2) << "Lowering after injecting memoization:\n" << s << '\n';
+        } else {
+            debug(1) << "Skipping injecting memoization...\n";
+        }
+
+        debug(1) << "Injecting prefetches...\n";
+        s = inject_prefetch(s, env);
+        debug(2) << "Lowering after injecting prefetches:\n" << s << "\n\n";
+
+        debug(1) << "Injecting tracing...\n";
+        s = inject_tracing(s, pipeline_name, env, outputs);
+        debug(2) << "Lowering after injecting tracing:\n" << s << '\n';
+
+        if (!compile_to_coli) {
+            debug(1) << "Adding checks for parameters\n";
+            s = add_parameter_checks(s, t);
+            debug(2) << "Lowering after injecting parameter checks:\n" << s << '\n';
+        }
     }
 
     // Compute the maximum and minimum possible value of each
@@ -138,13 +140,20 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     s = bounds_inference(s, outputs, order, env, func_bounds, t);
     debug(2) << "Lowering after computation bounds inference:\n" << s << '\n';
 
-    debug(1) << "Performing sliding window optimization...\n";
-    s = sliding_window(s, env);
-    debug(2) << "Lowering after sliding window:\n" << s << '\n';
+    if (!compile_to_coli) {
+        debug(1) << "Performing sliding window optimization...\n";
+        s = sliding_window(s, env);
+        debug(2) << "Lowering after sliding window:\n" << s << '\n';
+    }
 
     debug(1) << "Performing allocation bounds inference...\n";
     s = allocation_bounds_inference(s, env, func_bounds);
     debug(2) << "Lowering after allocation bounds inference:\n" << s << '\n';
+
+    if (compile_to_coli) {
+        // Storage flattening, etc, should be done by COLi
+        return s;
+    }
 
     debug(1) << "Removing code that depends on undef values...\n";
     s = remove_undef(s);
@@ -177,11 +186,6 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
         debug(1) << "Injecting image intrinsics...\n";
         s = inject_image_intrinsics(s, env);
         debug(2) << "Lowering after image intrinsics:\n" << s << "\n\n";
-    }
-
-    if (compile_to_coli) {
-        // Storage flattening, etc, should be done by COLi
-        return s;
     }
 
     debug(1) << "Performing storage flattening...\n";

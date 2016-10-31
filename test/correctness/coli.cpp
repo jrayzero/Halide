@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
     in(x, y) = x + y;
     Image<int> input = in.realize(100, 100);
 
-    f(x, y) = input(x, y) >> 2;
+    f(x, y) = cast(Float(32), input(x, y) >> 2);
     Image<int> f_img(Int(32), 100, 100);
     f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
 

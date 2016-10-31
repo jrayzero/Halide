@@ -339,6 +339,8 @@ CodeGen_Coli::~CodeGen_Coli() {
     do_indent();
     stream << func << ".set_arguments(" << buffers_stream.str() << ");\n";
     do_indent();
+    stream << func << ".gen_time_processor_domain();\n";
+    do_indent();
     stream << func << ".gen_isl_ast();\n";
     do_indent();
     stream << func << ".gen_halide_stmt();\n";
@@ -458,7 +460,11 @@ void CodeGen_Coli::visit(const FloatImm *op) {
 }
 
 void CodeGen_Coli::visit(const Cast *op) {
-    user_error << "Conversion of Cast to COLi is not currently supported.\n";
+    stream << "coli::expr(coli::o_cast, ";
+    stream << halide_type_to_coli_type_str(op->type);
+    stream << ", ";
+    print(op->value);
+    stream << ")";
 }
 
 void CodeGen_Coli::visit(const Variable *op) {
@@ -790,6 +796,11 @@ void CodeGen_Coli::visit(const Call *op) {
         print(op->args[0]);
         stream << " << ";
         print(op->args[1]);
+        stream << ')';
+    } else if ((op->name == "floor_f16") || (op->name == "floor_f32") || (op->name == "floor_f64")) {
+        internal_assert(op->args.size() == 1);
+        stream << "coli::expr(o_floor, ";
+        print(op->args[0]);
         stream << ')';
     } else {
         user_assert((op->call_type == Call::CallType::Halide) || (op->call_type == Call::CallType::Image))
