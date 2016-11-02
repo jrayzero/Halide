@@ -15,6 +15,7 @@ using std::string;
 using std::vector;
 using std::ostringstream;
 using std::map;
+using std::pair;
 
 namespace {
 const string headers =
@@ -349,6 +350,10 @@ CodeGen_Coli::~CodeGen_Coli() {
     do_indent();
     stream << func << ".gen_halide_obj(\"build/generated_" << func << "_test.o\");\n";
 
+    stream << "\n";
+    do_indent();
+    stream << "return 0;\n";
+
     indent -= tab_size;
 
     do_indent();
@@ -629,7 +634,6 @@ void CodeGen_Coli::visit(const LetStmt *op) {
 }
 
 void CodeGen_Coli::visit(const ProducerConsumer *op) {
-    user_assert(op->body.as<Block>() == NULL) << "Does not currently handle update.\n";
     internal_assert(!op->is_producer || (computation_list.find(op->name) == computation_list.end()))
         << "Found another computation with the same name.\n";
 
@@ -665,20 +669,8 @@ void CodeGen_Coli::visit(const For *op) {
     Expr extent_val = scope.get(extent->name);
 
     // Substitute it in all references to some other variables in the min/extent val
-    map<string, Expr> replacements;
-    typename Scope<Expr>::const_iterator iter;
-    for (iter = scope.cbegin(); iter != scope.cend(); ++iter) {
-        if ((iter.name() != min->name) || (iter.name() != extent->name)) {
-            replacements.emplace(iter.name(), iter.value());
-        }
-    }
-
-    // Do it twice, to make sure we substitute in all variables properly
-    min_val = substitute(replacements, min_val);
-    min_val = substitute(replacements, min_val);
-
-    extent_val = substitute(replacements, extent_val);
-    extent_val = substitute(replacements, extent_val);
+    min_val = substitute_in_lets(min_val);
+    extent_val = substitute_in_lets(extent_val);
 
     do_indent();
     stream << "// Define loop bounds for dimension \"" << op->name << "\".\n";
@@ -738,6 +730,19 @@ void CodeGen_Coli::visit(const Provide *op) {
     computation_list.insert(op->name);
 }
 
+Expr CodeGen_Coli::substitute_in_lets(Expr expr) const {
+    vector<pair<string, Expr>> replacements;
+    typename Scope<Expr>::const_iterator iter;
+    for (iter = scope.cbegin(); iter != scope.cend(); ++iter) {
+        replacements.push_back(std::make_pair(iter.name(), iter.value()));
+    }
+
+    for (int i = replacements.size() - 1; i >= 0; --i) {
+        expr = substitute(replacements[i].first, replacements[i].second, expr);
+    }
+    return simplify(expr);
+}
+
 void CodeGen_Coli::visit(const Realize *op) {
     // We will ignore the condition on the Realize node for now.
 
@@ -750,10 +755,20 @@ void CodeGen_Coli::visit(const Realize *op) {
             << "Realize node should have the same types for all dimensions for now.\n";
     }
 
+
+    vector<Range> bounds(op->bounds);
+
+    // Substitute it in all references to some other variables in the bounds
+    for (Range &r : bounds) {
+        r.min = substitute_in_lets(r.min);
+        r.extent = substitute_in_lets(r.extent);
+    }
+
     // Assert that the bounds on the dimensions start from 0 for now.
-    for (size_t i = 0; i < op->bounds.size(); ++i) {
-        user_assert(is_zero(op->bounds[i].min))
-            << "Bound of realize node should start from 0 for now.\n";
+    for (size_t i = 0; i < bounds.size(); ++i) {
+        user_assert(is_zero(bounds[i].min))
+            << "Bound of realize node should start from 0 for now.\n"
+            << "Got " << bounds[i].min << " instead.\n";
     }
 
     do_indent();
@@ -763,12 +778,12 @@ void CodeGen_Coli::visit(const Realize *op) {
     string buffer_name = "buff_" + op->name;
     do_indent();
     stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
-           << op->bounds.size() << ", ";
+           << bounds.size() << ", ";
 
     stream << "{";
-    for (size_t i = 0; i < op->bounds.size(); ++i) {
-        print(op->bounds[i].extent);
-        if (i != op->bounds.size() - 1) {
+    for (size_t i = 0; i < bounds.size(); ++i) {
+        print(bounds[i].extent);
+        if (i != bounds.size() - 1) {
             stream << ", ";
         }
     }

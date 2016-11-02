@@ -74,6 +74,8 @@ private:
     void define_constant(const std::string &name, Expr value);
     void generate_schedule();
 
+    Expr substitute_in_lets(Expr expr) const;
+
 protected:
     using IRPrinter::visit;
 

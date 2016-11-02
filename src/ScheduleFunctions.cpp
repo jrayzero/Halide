@@ -656,9 +656,9 @@ vector<Stmt> build_update(Function f, bool compile_to_coli) {
 
 pair<Stmt, Stmt> build_production(Function func, const Target &target, bool compile_to_coli,
                                   map<string, Schedule> schedules) {
-    if (compile_to_coli) {
-        internal_assert(func.updates().empty());
-    }
+    /*if (compile_to_coli) {
+        internal_assert(func.updates().empty()) << "COLi doesn't handle update right now.\n";
+    }*/
     schedules.emplace(func.name(), func.definition().schedule());
 
     Stmt produce = build_produce(func, target, compile_to_coli);
