@@ -259,8 +259,7 @@ void Pipeline::compile_to_coli(Realization dst,
     }
 
     vector<Function> order; // Realization order
-    map<string, Schedule> schedules;
-    Stmt body = lower(contents->outputs, fn_name, target, order, schedules, custom_passes, true);
+    Stmt body = lower(contents->outputs, fn_name, target, order, custom_passes, true);
 
     // Get all the arguments/global images referenced in this function.
     vector<Argument> public_args = build_public_args(args, target);
@@ -312,7 +311,7 @@ void Pipeline::compile_to_coli(Realization dst,
     Internal::print_to_coli(body, stream, fn_name, contents->outputs,
                             output_buffer_extents, output_buffer_types,
                             inputs, input_buffer_extents, input_buffer_types,
-                            order, schedules);
+                            order);
     debug(0) << "Generated COLi:\n" << stream.str() << "\n";
 }
 
@@ -656,8 +655,7 @@ Module Pipeline::compile_to_module(const vector<Argument> &args,
         }
 
         vector<Function> order;
-        map<string, Schedule> schedules;
-        private_body = lower(contents->outputs, fn_name, target, order, schedules, custom_passes);
+        private_body = lower(contents->outputs, fn_name, target, order, custom_passes);
     }
 
     std::vector<std::string> namespaces;

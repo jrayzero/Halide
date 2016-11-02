@@ -654,13 +654,7 @@ vector<Stmt> build_update(Function f, bool compile_to_coli) {
     return updates;
 }
 
-pair<Stmt, Stmt> build_production(Function func, const Target &target, bool compile_to_coli,
-                                  map<string, Schedule> schedules) {
-    /*if (compile_to_coli) {
-        internal_assert(func.updates().empty()) << "COLi doesn't handle update right now.\n";
-    }*/
-    schedules.emplace(func.name(), func.definition().schedule());
-
+pair<Stmt, Stmt> build_production(Function func, const Target &target, bool compile_to_coli) {
     Stmt produce = build_produce(func, target, compile_to_coli);
     vector<Stmt> updates = build_update(func, compile_to_coli);
 
@@ -744,20 +738,18 @@ public:
     bool is_output, found_store_level, found_compute_level;
     const Target &target;
     const bool compile_to_coli;
-    map<string, Schedule> schedules;
 
-    InjectRealization(const Function &f, bool o, const Target &t, bool compile_to_coli,
-                      map<string, Schedule> schedules) :
+    InjectRealization(const Function &f, bool o, const Target &t, bool compile_to_coli) :
         func(f), is_output(o),
         found_store_level(false), found_compute_level(false),
-        target(t), compile_to_coli(compile_to_coli), schedules(schedules) {}
+        target(t), compile_to_coli(compile_to_coli) {}
 
 private:
 
     string producing;
 
     Stmt build_pipeline(Stmt s) {
-        pair<Stmt, Stmt> realization = build_production(func, target, compile_to_coli, schedules);
+        pair<Stmt, Stmt> realization = build_production(func, target, compile_to_coli);
 
         Stmt producer;
         if (realization.first.defined() && realization.second.defined()) {
@@ -1257,7 +1249,6 @@ Stmt schedule_functions(const vector<Function> &outputs,
                         const map<string, Function> &env,
                         const Target &target,
                         bool compile_to_coli,
-                        map<string, Schedule> &schedules,
                         bool &any_memoized) {
 
     string root_var = LoopLevel::root().to_string();
@@ -1281,7 +1272,7 @@ Stmt schedule_functions(const vector<Function> &outputs,
             s = inline_function(s, f);
         } else {
             debug(1) << "Injecting realization of " << order[i-1] << '\n';
-            InjectRealization injector(f, is_output, target, compile_to_coli, schedules);
+            InjectRealization injector(f, is_output, target, compile_to_coli);
             s = injector.mutate(s);
             internal_assert(injector.found_store_level && injector.found_compute_level);
         }

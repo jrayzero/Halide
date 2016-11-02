@@ -5,7 +5,7 @@ using namespace Halide;
 using namespace Halide::Internal;
 
 int main(int argc, char **argv) {
-    if (1) {
+    if (0) {
         Func f("f");
         Var x("x"), y("y");
 
@@ -18,15 +18,17 @@ int main(int argc, char **argv) {
         f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
     }
 
-    if (0) {
+    if (1) {
         Func f("f");
         Var x("x"), y("y");
 
         Func in("in");
         in(x, y) = 13;
         in.compute_root();
+        in.parallel(y);
 
         f(x, y) = cast(Float(32), in(x, y) >> 2);
+        f.vectorize(x);
         Image<int> f_img(Int(32), 100, 100);
         f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
     }

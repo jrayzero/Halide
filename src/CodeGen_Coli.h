@@ -9,7 +9,6 @@
 #include "IRPrinter.h"
 #include "Function.h"
 #include "Scope.h"
-#include "Schedule.h"
 #include "Simplify.h"
 
 namespace Halide {
@@ -33,8 +32,7 @@ public:
                  const std::vector<std::string> &inputs,
                  const std::vector<std::vector<int32_t>> &input_buffer_extents,
                  const std::vector<Type> &input_buffer_types,
-                 const std::vector<Function> &order,
-                 const std::map<std::string, Schedule> &schedules);
+                 const std::vector<Function> &order);
     ~CodeGen_Coli();
 
     void print(Expr e);
@@ -57,7 +55,6 @@ private:
 
     std::string func; // Represent one Halide pipeline
     const std::vector<Function> &order;
-    const std::map<std::string, Schedule> &schedules;
 
     std::set<std::string> output_buffers;
     std::set<std::string> input_buffers;
@@ -133,8 +130,7 @@ EXPORT void print_to_coli(
     const std::vector<std::string> &inputs,
     const std::vector<std::vector<int32_t>> &input_buffer_extents,
     const std::vector<Type> &input_buffer_types,
-    const std::vector<Function> &order,
-    const std::map<std::string, Schedule> &schedules);
+    const std::vector<Function> &order);
 
 }
 }

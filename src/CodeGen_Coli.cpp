@@ -5,6 +5,7 @@
 #include "IROperator.h"
 #include "IRMutator.h"
 #include "Substitute.h"
+#include "Schedule.h"
 
 namespace Halide {
 namespace Internal {
@@ -184,9 +185,8 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
                            const vector<string> &inputs,
                            const vector<vector<int32_t>> &input_buffer_extents,
                            const vector<Type> &input_buffer_types,
-                           const vector<Function> &order,
-                           const map<string, Schedule> &schedules)
-        : IRPrinter(dest), func(pipeline_name), order(order), schedules(schedules) {
+                           const vector<Function> &order)
+        : IRPrinter(dest), func(pipeline_name), order(order) {
 
     internal_assert(outputs.size() == output_buffer_extents.size());
     internal_assert(output_buffer_extents.size() == output_buffer_types.size());
@@ -299,11 +299,47 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
 
 void CodeGen_Coli::generate_schedule() {
     // TODO(psuriana): Add the realization order and schedules
-    for (const auto &f : order) {
-        debug(5) << "Func " << f.name() << "\n";
-    }
-    for (const auto &iter : schedules) {
-        debug(5) << "Schedule for Func " << iter.first << "\n";
+
+    // Use trivial ordering for now (i.e. everything is computed at root)
+    // TODO(psuriana): add compute_at
+    internal_assert(!order.empty());
+    stream << "\n";
+    do_indent();
+    stream << "// Add schedules.\n";
+    for (size_t i = 0; i < order.size(); ++i) {
+        const Function &func = order[i];
+
+        if (i == 0) {
+            do_indent();
+            stream << func.name() << ".first(computation::root_dimension);\n";
+        } else {
+            do_indent();
+            stream << func.name() << ".after(" << order[i-1].name() << ", computation::root_dimension);\n";
+        }
+
+        // TODO(psuriana): schedule the update definition as well
+
+        // Tag any parallel/vectorize dimensions
+        const vector<Dim> &dims = func.definition().schedule().dims();
+        size_t dim_size = dims.size() - 1; // Ignore outermost
+        debug(0) << "***DIM SIZE: " << dim_size << "\n";
+        for (size_t i = 0; i < dim_size; ++i) {
+            const Dim &d = dims[i];
+            if (d.for_type == ForType::Parallel) {
+                debug(0) << "****PARALLEL " << func.name() << "." << d.var << "\n";
+                do_indent();
+                stream << func.name() << ".tag_parallel_dimension(" << std::to_string(dim_size - i) << ");\n";
+            } else if (d.for_type == ForType::Vectorized) {
+                debug(0) << "****VECTORIZE " << func.name() << "." << d.var << "\n";
+                do_indent();
+                stream << func.name() << ".tag_vector_dimension(" << std::to_string(dim_size - i) << ");\n";
+            } else {
+                internal_assert(d.for_type == ForType::Serial)
+                    << "Can only emit serial/parallel/vectorized for loops to COLi\n";
+            }
+        }
+
+        // TODO(psuriana): add GPU schedules
     }
 }
 
@@ -672,11 +708,11 @@ void CodeGen_Coli::visit(const For *op) {
     min_val = substitute_in_lets(min_val);
     extent_val = substitute_in_lets(extent_val);
 
+    stream << "\n";
     do_indent();
     stream << "// Define loop bounds for dimension \"" << op->name << "\".\n";
     define_constant(min->name, min_val);
     define_constant(extent->name, extent_val);
-    stream << "\n";
 
     print(op->body);
     pop_loop_dim();
@@ -771,8 +807,6 @@ void CodeGen_Coli::visit(const Realize *op) {
             << "Got " << bounds[i].min << " instead.\n";
     }
 
-    do_indent();
-
     // Create a temporary buffer
 
     string buffer_name = "buff_" + op->name;
@@ -854,8 +888,7 @@ void print_to_coli(Stmt s, ostream &dest, const string &pipeline_name,
                    const vector<string> &inputs,
                    const vector<vector<int32_t>> &input_buffer_extents,
                    const vector<Type> &input_buffer_types,
-                   const vector<Function> &order,
-                   const map<string, Schedule> &schedules) {
+                   const vector<Function> &order) {
 
     NormalizeVariableName normalize;
     s = normalize.mutate(s);
@@ -863,7 +896,7 @@ void print_to_coli(Stmt s, ostream &dest, const string &pipeline_name,
 
     CodeGen_Coli cg(dest, pipeline_name, outputs, output_buffer_extents,
                     output_buffer_types, inputs, input_buffer_extents,
-                    input_buffer_types, order, schedules);
+                    input_buffer_types, order);
     cg.print(s);
 }
 

@@ -66,8 +66,7 @@ using std::vector;
 using std::map;
 
 Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &t,
-           vector<Function> &func_order, map<string, Schedule> &schedules,
-           const vector<IRMutator *> &custom_passes,
+           vector<Function> &func_order, const vector<IRMutator *> &custom_passes,
            bool compile_to_coli) {
 
     // Compute an environment
@@ -86,6 +85,12 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     // Compute a realization order
     vector<string> order = realization_order(outputs, env);
 
+    func_order = vector<Function>(order.size());
+    for (size_t i = 0; i < order.size(); ++i) {
+        internal_assert(env.count(order[i]));
+        func_order[i] = env[order[i]];
+    }
+
     // Try to simplify the RHS/LHS of a function definition by propagating its
     // specializations' conditions
     simplify_specializations(env);
@@ -93,7 +98,7 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     bool any_memoized = false;
 
     debug(1) << "Creating initial loop nests...\n";
-    Stmt s = schedule_functions(outputs, order, env, t, compile_to_coli, schedules, any_memoized);
+    Stmt s = schedule_functions(outputs, order, env, t, compile_to_coli, any_memoized);
     debug(2) << "Lowering after creating initial loop nests:\n" << s << '\n';
 
     if (!compile_to_coli) {
