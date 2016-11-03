@@ -33,7 +33,8 @@ public:
                  const std::vector<std::string> &inputs,
                  const std::vector<std::vector<int32_t>> &input_buffer_extents,
                  const std::vector<Type> &input_buffer_types,
-                 const std::vector<Function> &order);
+                 const std::vector<std::string> &order,
+                 const std::map<std::string, Function> &env);
     ~CodeGen_Coli();
 
     void print(Expr e);
@@ -45,6 +46,9 @@ private:
     struct Loop {
         std::string name;
         Expr min, extent;
+        std::string func;
+        int stage;
+        std::string var;
 
         std::string to_string() const {
             std::ostringstream ss;
@@ -55,7 +59,8 @@ private:
     };
 
     std::string func; // Represent one Halide pipeline
-    const std::vector<Function> &order;
+    const std::vector<std::string> &order;
+    const std::map<std::string, Function> &env;
 
     std::set<std::string> output_buffers;
     std::set<std::string> input_buffers;
@@ -64,16 +69,23 @@ private:
     std::set<std::string> temporary_buffers;
     std::set<std::string> computation_list;
     std::set<std::string> constant_list;
+    int loop_depth;
 
-    void push_loop_dim(const std::string &name, Expr min, Expr extent);
+    void push_loop_dim(const std::string &name, Expr min, Expr extent,
+                       const std::string &func_name, int stage, const std::string &var);
     void pop_loop_dim();
     std::string get_loop_bound_vars() const;
     std::string get_loop_bounds() const;
     void define_constant(const std::string &name, Expr value);
     void generate_schedules();
-    void generate_schedule(const Function &func, const Schedule &schedule, size_t i);
+    void generate_schedule(const Function &func, int stage, const Schedule &schedule, size_t i);
 
     Expr substitute_in_lets(Expr expr) const;
+
+    std::string get_current_func_name() const;
+    int get_current_stage() const;
+
+    void generate_buffer(const Realize *op, int stage);
 
 protected:
     using IRPrinter::visit;
@@ -121,7 +133,7 @@ protected:
 };
 
 /**
- * Dump an HTML-formatted print of a Stmt to filename.
+ * Dump an HTML-formatted print of a Stmt to 'dest'.
  */
 EXPORT void print_to_coli(
     Stmt s, std::ostream &dest,
@@ -132,7 +144,8 @@ EXPORT void print_to_coli(
     const std::vector<std::string> &inputs,
     const std::vector<std::vector<int32_t>> &input_buffer_extents,
     const std::vector<Type> &input_buffer_types,
-    const std::vector<Function> &order);
+    const std::vector<std::string> &order,
+    const std::map<std::string, Function> &env);
 
 }
 }

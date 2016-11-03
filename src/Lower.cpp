@@ -66,11 +66,12 @@ using std::vector;
 using std::map;
 
 Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &t,
-           vector<Function> &func_order, const vector<IRMutator *> &custom_passes,
+           vector<string> &order, map<string, Function> &env,
+           const vector<IRMutator *> &custom_passes,
            bool compile_to_coli) {
 
     // Compute an environment
-    map<string, Function> env;
+    env.clear();
     for (Function f : outputs) {
         map<string, Function> more_funcs = find_transitive_calls(f);
         env.insert(more_funcs.begin(), more_funcs.end());
@@ -83,13 +84,8 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     env = wrap_func_calls(env);
 
     // Compute a realization order
-    vector<string> order = realization_order(outputs, env);
-
-    func_order = vector<Function>(order.size());
-    for (size_t i = 0; i < order.size(); ++i) {
-        internal_assert(env.count(order[i]));
-        func_order[i] = env[order[i]];
-    }
+    order.clear();
+    order = realization_order(outputs, env);
 
     // Try to simplify the RHS/LHS of a function definition by propagating its
     // specializations' conditions

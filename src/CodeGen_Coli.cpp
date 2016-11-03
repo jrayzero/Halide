@@ -67,11 +67,6 @@ namespace {
 string print_name(const string &name) {
     ostringstream oss;
 
-    // Prefix an underscore to avoid reserved words (e.g. a variable named "while")
-    if (isalpha(name[0])) {
-        oss << '_';
-    }
-
     for (size_t i = 0; i < name.size(); i++) {
         if (name[i] == '.') {
             oss << '_';
@@ -185,8 +180,9 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
                            const vector<string> &inputs,
                            const vector<vector<int32_t>> &input_buffer_extents,
                            const vector<Type> &input_buffer_types,
-                           const vector<Function> &order)
-        : IRPrinter(dest), func(pipeline_name), order(order) {
+                           const vector<string> &order,
+                           const map<string, Function> &env)
+        : IRPrinter(dest), func(pipeline_name), order(order), env(env), loop_depth(0) {
 
     internal_assert(outputs.size() == output_buffer_extents.size());
     internal_assert(output_buffer_extents.size() == output_buffer_types.size());
@@ -229,7 +225,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
         }
         sizes << "}";
 
-        string buffer_name = "buff_" + f.name();
+        string buffer_name = "buff_" + print_name(f.name() + ".s" + std::to_string(f.updates().size()));
         do_indent();
         stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
                << f.args().size() << ", " << sizes.str() << ", "
@@ -250,7 +246,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
         sizes << "{";
         for (size_t i = 0; i < buffer_extents.size(); ++i) {
             dummy_dims[i] = "i" + std::to_string(i);
-            push_loop_dim(dummy_dims[i], make_const(Int(32), 0), buffer_extents[i]);
+            push_loop_dim(dummy_dims[i], make_const(Int(32), 0), buffer_extents[i], input_name, 0, "");
 
             sizes << "coli::expr(" << buffer_extents[i] << ")";
             if (i != buffer_extents.size() - 1) {
@@ -259,7 +255,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
         }
         sizes << "}";
 
-        string buffer_name = "buff_" + input_name;
+        string buffer_name = "buff_" + print_name(input_name);
         do_indent();
         stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
                << buffer_extents.size() << ", " << sizes.str() << ", "
@@ -314,7 +310,10 @@ int get_compute_at_dim_index(const vector<Dim> &dims, const string &var) {
 
 } // anonymous namespace
 
-void CodeGen_Coli::generate_schedule(const Function &func, const Schedule &schedule, size_t i) {
+void CodeGen_Coli::generate_schedule(const Function &func, int stage,
+                                     const Schedule &schedule, size_t order_index) {
+    string name = print_name(func.name() + ".s" + std::to_string(stage));
+
     const vector<Dim> &dims = schedule.dims();
     size_t dim_size = dims.size() - 1; // Ignore __outermost
 
@@ -335,35 +334,18 @@ void CodeGen_Coli::generate_schedule(const Function &func, const Schedule &sched
         }
     }*/
 
-    // TODO(psuriana): How to hande is_inline() in COLi? For now just treat it as compute root
-    const LoopLevel &compute_at = func.schedule().compute_level();
-    if (compute_at.is_root() || compute_at.is_inline()) {
-        if (i == 0) {
-            do_indent();
-            stream << func.name() << ".first(computation::root_dimension);\n";
-        } else {
-            do_indent();
-            stream << func.name() << ".after(" << order[i-1].name() << ", computation::root_dimension);\n";
-        }
-    } else {
-        internal_assert(i > 0);
-        int index = get_compute_at_dim_index(dims, compute_at.var().name());
-        debug(5) << "Compute Func " << func.name() << " at " << compute_at.var().name() << "(" << index << ")\n";
-        do_indent();
-        stream << func.name() << ".after(" << compute_at.func().name() << ", " << std::to_string(index) << ");\n";
-    }
-
-    // Tag any parallel/vectorize dimensions
+    // Tag any parallel dimensions
     for (size_t i = 0; i < dim_size; ++i) {
         const Dim &d = dims[i];
         if (d.for_type == ForType::Parallel) {
-            debug(5) << "...Parallelize " << func.name() << "." << d.var << "\n";
+            debug(5) << "...Parallelize " << name << "." << d.var << "\n";
             do_indent();
-            stream << func.name() << ".tag_parallel_dimension(" << std::to_string(dim_size - i) << ");\n";
+            stream << name << ".tag_parallel_dimension(" << std::to_string(dim_size - i) << ");\n";
         } else if (d.for_type == ForType::Vectorized) {
-            debug(5) << "...Vectorize " << func.name() << "." << d.var << "\n";
+            internal_error << "Does not currently support vectorization\n";
+            /*debug(5) << "...Vectorize " << name << "." << d.var << "\n";
             do_indent();
-            stream << func.name() << ".tag_vector_dimension(" << std::to_string(dim_size - i) << ");\n";
+            stream << name << ".tag_vector_dimension(" << std::to_string(dim_size - i) << ");\n";*/
         } else {
             internal_assert(d.for_type == ForType::Serial)
                 << "Can only emit serial/parallel/vectorized for loops to COLi\n";
@@ -379,10 +361,12 @@ void CodeGen_Coli::generate_schedules() {
     do_indent();
     stream << "// Add schedules.\n";
     for (size_t i = 0; i < order.size(); ++i) {
-        const Function &func = order[i];
+        const string &func_name = order[i];
+        internal_assert(env.count(func_name));
+        const Function &func = env.find(func_name)->second;
 
         // TODO(psuriana): schedule the update definition as well
-        generate_schedule(func, func.definition().schedule(), i);
+        generate_schedule(func, 0, func.definition().schedule(), i);
     }
 }
 
@@ -439,12 +423,23 @@ CodeGen_Coli::~CodeGen_Coli() {
     stream << "}\n\n";
 }
 
-void CodeGen_Coli::push_loop_dim(const string &name, Expr min, Expr extent) {
-    loop_dims.push_back({name, min, extent});
+void CodeGen_Coli::push_loop_dim(const string &name, Expr min, Expr extent,
+                                 const string &func, int stage, const string &var) {
+    loop_dims.push_back({name, min, extent, func, stage, var});
 }
 
 void CodeGen_Coli::pop_loop_dim() {
     loop_dims.pop_back();
+}
+
+string CodeGen_Coli::get_current_func_name() const {
+    internal_assert(!loop_dims.empty());
+    return loop_dims[loop_dims.size()-1].func;
+}
+
+int CodeGen_Coli::get_current_stage() const {
+    internal_assert(!loop_dims.empty());
+    return loop_dims[loop_dims.size()-1].stage;
 }
 
 string CodeGen_Coli::get_loop_bound_vars() const {
@@ -534,9 +529,9 @@ void CodeGen_Coli::visit(const UIntImm *op) {
 
 void CodeGen_Coli::visit(const FloatImm *op) {
     if (op->type.bits() == 32) {
-        stream << "coli::expr((float)op->value);";
+        stream << "coli::expr((float)" << op->value << ")";
     } else if (op->type.bits() == 64) {
-        stream << "coli::expr(op->value);";
+        stream << "coli::expr(" << op->value << ")";
     } else {
         // Only support 32- and 64-bit integer
         user_error << "Conversion of float " << op->type.bits() << "_t to COLi is not currently supported.\n";
@@ -717,8 +712,68 @@ void CodeGen_Coli::visit(const ProducerConsumer *op) {
         << "Found another computation with the same name.\n";
 
     vector<Loop> old_loop_dims = loop_dims;
+    int old_loop_depth = loop_depth;
+    loop_depth = 0;
     print(op->body);
     loop_dims = old_loop_dims;
+    loop_depth = old_loop_depth;
+
+    if (op->is_producer) {
+        stream << "\n";
+        do_indent();
+        stream << "// Define compute level for \"" << op->name << "\".\n";
+
+        internal_assert(env.count(op->name));
+        Function func = env.find(op->name)->second;
+
+        const LoopLevel &compute_at = func.schedule().compute_level();
+        if (compute_at.is_root() || compute_at.is_inline()) {
+            if (order[0] == op->name) {
+                // Initial definition
+                do_indent();
+                stream << print_name(op->name + ".s0") << ".first(computation::root_dimension);\n";
+                // Update definitions
+                for (size_t i = 0; i < func.updates().size(); ++i) {
+                    do_indent();
+                    stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".first(computation::root_dimension);\n";
+                }
+            } else {
+                const auto iter = std::find_if(order.begin(), order.end(),
+                    [&op](const string& f) { return (f == op->name); });
+                internal_assert(iter != order.end());
+                int order_index = iter - order.begin();
+
+                // Initial definition
+                do_indent();
+                stream << print_name(op->name + ".s0") << ".after(" << print_name(order[order_index-1] + "_s")
+                       << std::to_string(func.updates().size()) << ", computation::root_dimension);\n";
+                // Update definitions
+                for (size_t i = 0; i < func.updates().size(); ++i) {
+                    do_indent();
+                    stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".after("
+                           << print_name(order[order_index-1] + "_s") << ", computation::root_dimension);\n";
+                }
+            }
+        } else {
+            string enclosing_func_name = get_current_func_name();
+            internal_assert(compute_at.func().name() == enclosing_func_name);
+            int enclosing_func_stage = get_current_stage();
+            string parent = print_name(enclosing_func_name + "_s" + std::to_string(enclosing_func_stage));
+
+            // TODO(psuriana): should compute at stage as well
+            debug(5) << "Compute Func " << op->name << " at " << compute_at.var().name() << "(" << loop_depth << ")\n";
+
+            // Initial definition
+            do_indent();
+            stream << print_name(op->name + ".s0") << ".after(" << parent << ", " << std::to_string(loop_depth) << ");\n";
+            // Update definitions
+            for (size_t i = 0; i < func.updates().size(); ++i) {
+                do_indent();
+                stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".after(" << parent
+                       << ", " << std::to_string(loop_depth) << ");\n";
+            }
+        }
+    }
 }
 
 void CodeGen_Coli::define_constant(const string &name, Expr val) {
@@ -737,7 +792,26 @@ void CodeGen_Coli::define_constant(const string &name, Expr val) {
 }
 
 void CodeGen_Coli::visit(const For *op) {
-    push_loop_dim(op->name, op->min, op->extent);
+    loop_depth += 1;
+
+    vector<string> v = split_string(op->name, "_");
+    internal_assert((v.size() > 2) && (!v[0].empty()) && (!v[v.size()-1].empty()));
+    string func_name = v[0];
+    string var = v[v.size()-1];
+
+    int producer_stage = -1;
+    for (size_t i = 1; i < v.size() - 1; ++i) {
+        if (v[i].substr(0, 1) == "s") {
+            string str = v[i].substr(1, v[i].size() - 1);
+            bool has_only_digits = (str.find_first_not_of( "0123456789" ) == string::npos);
+            if (has_only_digits) {
+                producer_stage = atoi(str.c_str());
+            }
+        }
+    }
+    internal_assert(producer_stage >= 0);
+
+    push_loop_dim(op->name, op->min, op->extent, func_name, producer_stage, var);
 
     const Variable *min = op->min.as<Variable>();
     internal_assert(min != NULL) << "Min value of a loop should have been a variable.\n";
@@ -751,7 +825,7 @@ void CodeGen_Coli::visit(const For *op) {
             break;
         }
     }
-    internal_assert(min_val.defined());
+    internal_assert(min_val.defined()) << "min->name: " << min->name << "\n";
 
     Expr extent_val;
     for (int i = scope.size() - 1; i >= 0; --i) {
@@ -774,6 +848,8 @@ void CodeGen_Coli::visit(const For *op) {
 
     print(op->body);
     pop_loop_dim();
+
+    loop_depth -= 1;
 }
 
 void CodeGen_Coli::visit(const Evaluate *op) {
@@ -785,9 +861,12 @@ void CodeGen_Coli::visit(const Load *op) {
 }
 
 void CodeGen_Coli::visit(const Provide *op) {
-    internal_assert(computation_list.find(op->name) == computation_list.end())
+    string name = print_name(op->name + "_s" + std::to_string(get_current_stage()));
+    string buffer_name = "buff_" + name;
+
+    internal_assert(computation_list.find(name) == computation_list.end())
         << "Duplicate computation \"" << op->name << "\" is not currently supported.\n";
-    internal_assert(temporary_buffers.count("buff_" + op->name) || output_buffers.count("buff_" + op->name))
+    internal_assert(temporary_buffers.count(buffer_name) || output_buffers.count(buffer_name))
         << "The buffer should have been allocated previously.\n";
 
     for (size_t i = 0; i < op->args.size(); ++i) {
@@ -797,15 +876,15 @@ void CodeGen_Coli::visit(const Provide *op) {
     user_assert(op->values.size() == 1) << "Expect 1D store (no tuple) in the Provide node for now.\n";
 
     do_indent();
-    stream << "coli::computation " << op->name << "(\"";
+    stream << "coli::computation " << name << "(\"";
     indent += 5*tab_size;
 
     string dims_str = to_string(op->args);
     string symbolic_str = get_loop_bound_vars();
     if (!symbolic_str.empty()) {
-        stream << get_loop_bound_vars() + "->{" << op->name + dims_str << ": \"\n";
+        stream << get_loop_bound_vars() + "->{" << name + dims_str << ": \"\n";
     } else {
-        stream << "{" << op->name << dims_str + ": \"\n";
+        stream << "{" << name << dims_str + ": \"\n";
     }
 
     do_indent();
@@ -817,11 +896,11 @@ void CodeGen_Coli::visit(const Provide *op) {
     indent -= 5*tab_size;
 
     // 1-to-1 mapping to buffer
-    string access_str = "{" + op->name + dims_str + "->" + "buff_" + op->name + dims_str + "}";
+    string access_str = "{" + name + dims_str + "->" + buffer_name + dims_str + "}";
     do_indent();
-    stream << op->name << ".set_access(\"" << access_str << "\");\n";
+    stream << name << ".set_access(\"" << access_str << "\");\n";
 
-    computation_list.insert(op->name);
+    computation_list.insert(name);
 }
 
 Expr CodeGen_Coli::substitute_in_lets(Expr expr) const {
@@ -831,10 +910,10 @@ Expr CodeGen_Coli::substitute_in_lets(Expr expr) const {
     return simplify(expr);
 }
 
-void CodeGen_Coli::visit(const Realize *op) {
-    // We will ignore the condition on the Realize node for now.
+void CodeGen_Coli::generate_buffer(const Realize *op, int stage) {
+    string name = print_name(op->name + "_s" + std::to_string(stage));
 
-    user_assert(temporary_buffers.find("buff_" + op->name) == temporary_buffers.end())
+    user_assert(temporary_buffers.find("buff_" + name) == temporary_buffers.end())
         << "Duplicate allocation (i.e. duplicate compute) is not currently supported.\n";
 
     // Assert that the types of all buffer dimensions are the same for now.
@@ -842,7 +921,6 @@ void CodeGen_Coli::visit(const Realize *op) {
         user_assert(op->types[i-1] == op->types[i])
             << "Realize node should have the same types for all dimensions for now.\n";
     }
-
 
     vector<Range> bounds(op->bounds);
 
@@ -855,14 +933,14 @@ void CodeGen_Coli::visit(const Realize *op) {
     // Assert that the bounds on the dimensions start from 0 for now.
     for (size_t i = 0; i < bounds.size(); ++i) {
         user_assert(is_zero(bounds[i].min))
-            << "Bound of realize node \"" << op->name << "\" should start from 0 for now.\n"
+            << "Bound of realize node \"" << name << "\" should start from 0 for now.\n"
             << "Got " << bounds[i].min << " instead.\n"
             << "Original bound min: " << op->bounds[i].min << "\n";
     }
 
     // Create a temporary buffer
 
-    string buffer_name = "buff_" + op->name;
+    string buffer_name = "buff_" + name;
     do_indent();
     stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
            << bounds.size() << ", ";
@@ -880,6 +958,25 @@ void CodeGen_Coli::visit(const Realize *op) {
            << "&" << func << ");\n";
 
     temporary_buffers.insert(buffer_name);
+}
+
+void CodeGen_Coli::visit(const Realize *op) {
+    // We will ignore the condition on the Realize node for now.
+
+    stream << "\n";
+    do_indent();
+    stream << "// Define temporary buffers for \"" << op->name << "\".\n";
+
+    internal_assert(env.count(op->name));
+    Function func = env.find(op->name)->second;
+
+    // Initial definition
+    generate_buffer(op, 0);
+
+    // Update definitions
+    for (size_t i = 0; i < func.updates().size(); ++i) {
+        generate_buffer(op, i+1);
+    }
 
     print(op->body);
 }
@@ -910,10 +1007,18 @@ void CodeGen_Coli::visit(const Call *op) {
             << Expr(op) << "\n"
             << "is pure? " << op->is_pure() << "\n";
 
-        const auto iter = computation_list.find(op->name);
-        internal_assert(iter != computation_list.end()) << "Call to computation that does not exist.\n";
+        string call_name;
+        if (op->call_type == Call::CallType::Halide) {
+            internal_assert(env.count(op->name));
+            Function func = env.find(op->name)->second;
+            call_name = print_name(op->name + ".s" + std::to_string(func.updates().size()));
+            internal_assert(computation_list.find(call_name) != computation_list.end())
+                << "Call to computation \"" << call_name << "\" that does not exist.\n";
+        } else {
+            call_name = print_name(op->name);
+        }
 
-        stream << (*iter) << "(";
+        stream << call_name << "(";
         for (size_t i = 0; i < op->args.size(); i++) {
             print(op->args[i]);
             if (i < op->args.size() - 1) {
@@ -941,15 +1046,18 @@ void print_to_coli(Stmt s, ostream &dest, const string &pipeline_name,
                    const vector<string> &inputs,
                    const vector<vector<int32_t>> &input_buffer_extents,
                    const vector<Type> &input_buffer_types,
-                   const vector<Function> &order) {
+                   const vector<string> &order,
+                   const map<string, Function> &env) {
 
     NormalizeVariableName normalize;
     s = normalize.mutate(s);
     debug(0) << "After normalization:\n" << s << "\n\n";
 
+    // TODO(psuriana): Need to re-normalize the allocation bound to start from 0
+
     CodeGen_Coli cg(dest, pipeline_name, outputs, output_buffer_extents,
                     output_buffer_types, inputs, input_buffer_extents,
-                    input_buffer_types, order);
+                    input_buffer_types, order, env);
     cg.print(s);
 }
 
