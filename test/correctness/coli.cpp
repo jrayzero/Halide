@@ -23,13 +23,28 @@ int main(int argc, char **argv) {
         Var x("x"), y("y");
 
         Func in("in");
+        in(x, y) = x + y;
+        Image<int> input = in.realize(100, 100);
+
+        RDom r(0, 100);
+        f(x) += input(x, r);
+        Image<int> f_img(Int(32), 100);
+        f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
+    }
+
+    if (0) {
+        Func f("f");
+        Var x("x"), y("y");
+
+        Func in("in");
         in(x, y) = 13;
         in.compute_root();
-        in.parallel(y);
+        in.parallel(x);
+        in.reorder(y, x);
 
         f(x, y) = cast(Float(32), in(x, y) >> 2);
-        f.vectorize(x);
-        Image<int> f_img(Int(32), 100, 100);
+        f.vectorize(y);
+        Image<int> f_img(Int(32), 100, 50);
         f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
     }
 

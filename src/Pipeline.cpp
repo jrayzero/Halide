@@ -273,14 +273,15 @@ void Pipeline::compile_to_coli(Realization dst,
         BufferPtr buf = dst[i];
         output_buffer_types[i] = buf.type();
         for (int j = 0; j < buf.dimensions(); ++j) {
-            Expr min_expr = buf.dim(i).min();
-            Expr extent_expr = buf.dim(i).extent();
+            Expr min_expr = buf.dim(j).min();
+            Expr extent_expr = buf.dim(j).extent();
             const IntImm *min = min_expr.as<IntImm>();
             const IntImm *extent = extent_expr.as<IntImm>();
             internal_assert((min != nullptr) && (extent != nullptr));
             internal_assert(min->value == 0);
             internal_assert(extent->value > 0);
             output_buffer_extents[i].push_back(extent->value);
+            debug(0) << "VAL: " << extent->value << "\n";
         }
     }
 
@@ -307,6 +308,12 @@ void Pipeline::compile_to_coli(Realization dst,
 
     //std::ofstream file(name);
     std::ostringstream stream;
+
+    debug(0) << "\n********\nORDER:\n";
+    for (const auto &f : order) {
+        debug(0) << "..." << f.name() << "\n";
+    }
+    debug(0) << "\n";
 
     Internal::print_to_coli(body, stream, fn_name, contents->outputs,
                             output_buffer_extents, output_buffer_types,

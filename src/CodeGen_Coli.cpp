@@ -5,7 +5,7 @@
 #include "IROperator.h"
 #include "IRMutator.h"
 #include "Substitute.h"
-#include "Schedule.h"
+#include "Func.h"
 
 namespace Halide {
 namespace Internal {
@@ -221,8 +221,8 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
             sizes << "coli::expr(" << buffer_extents[i] << ")";
             string min_str = print_name(f.name() + ".min." + std::to_string(i));
             string extent_str = print_name(f.name() + ".extent." + std::to_string(i));
-            scope.push(min_str, make_const(Int(32), 0));
-            scope.push(extent_str, make_const(Int(32), buffer_extents[i]));
+            scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
+            scope.push_back(std::make_pair(extent_str, make_const(Int(32), buffer_extents[i])));
             if (i != buffer_extents.size() - 1) {
                 sizes << ", ";
             }
@@ -297,18 +297,47 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
     }
 }
 
-void CodeGen_Coli::generate_schedule() {
-    // TODO(psuriana): Add the realization order and schedules
+namespace {
 
-    // Use trivial ordering for now (i.e. everything is computed at root)
-    // TODO(psuriana): add compute_at
-    internal_assert(!order.empty());
-    stream << "\n";
-    do_indent();
-    stream << "// Add schedules.\n";
-    for (size_t i = 0; i < order.size(); ++i) {
-        const Function &func = order[i];
+int get_split_fuse_dim_index(const vector<Dim> &dims, const string &var) {
+    // TODO(psuriana): we need to pass the *original* dim list (i.e. the one
+    // before Halide applies any splits, reordering, etc.)
+    return 0;
+}
 
+int get_compute_at_dim_index(const vector<Dim> &dims, const string &var) {
+    const auto iter = std::find_if(dims.begin(), dims.end(),
+        [&var](const Dim& d) { return (d.var == var); });
+    internal_assert(iter != dims.end());
+    return (iter - dims.begin());
+}
+
+} // anonymous namespace
+
+void CodeGen_Coli::generate_schedule(const Function &func, const Schedule &schedule, size_t i) {
+    const vector<Dim> &dims = schedule.dims();
+    size_t dim_size = dims.size() - 1; // Ignore __outermost
+
+    // Add split/fuse schedule
+    // TODO(psuriana): the mapping from dim name to index is a complete mess in COLi. Not
+    // sure how this will pan out will a more complex schedules (with reorder, etc)
+    /*for (const Split &split : schedule.splits()) {
+        if (split.is_split()) {
+            int index = get_split_fuse_dim_index(dims, split.old_var);
+
+            debug(0) << "Splitting " << func.name() << "." << split.old_var << "(" << index << ")\n";
+            do_indent();
+            stream << func.name() << ".split(" << std::to_string(index) << ", "
+                   << split.factor << ");\n";
+
+        } else {
+            user_error << "COLi only handles split.\n";
+        }
+    }*/
+
+    // TODO(psuriana): How to hande is_inline() in COLi? For now just treat it as compute root
+    const LoopLevel &compute_at = func.schedule().compute_level();
+    if (compute_at.is_root() || compute_at.is_inline()) {
         if (i == 0) {
             do_indent();
             stream << func.name() << ".first(computation::root_dimension);\n";
@@ -316,35 +345,49 @@ void CodeGen_Coli::generate_schedule() {
             do_indent();
             stream << func.name() << ".after(" << order[i-1].name() << ", computation::root_dimension);\n";
         }
+    } else {
+        internal_assert(i > 0);
+        int index = get_compute_at_dim_index(dims, compute_at.var().name());
+        debug(5) << "Compute Func " << func.name() << " at " << compute_at.var().name() << "(" << index << ")\n";
+        do_indent();
+        stream << func.name() << ".after(" << compute_at.func().name() << ", " << std::to_string(index) << ");\n";
+    }
+
+    // Tag any parallel/vectorize dimensions
+    for (size_t i = 0; i < dim_size; ++i) {
+        const Dim &d = dims[i];
+        if (d.for_type == ForType::Parallel) {
+            debug(5) << "...Parallelize " << func.name() << "." << d.var << "\n";
+            do_indent();
+            stream << func.name() << ".tag_parallel_dimension(" << std::to_string(dim_size - i) << ");\n";
+        } else if (d.for_type == ForType::Vectorized) {
+            debug(5) << "...Vectorize " << func.name() << "." << d.var << "\n";
+            do_indent();
+            stream << func.name() << ".tag_vector_dimension(" << std::to_string(dim_size - i) << ");\n";
+        } else {
+            internal_assert(d.for_type == ForType::Serial)
+                << "Can only emit serial/parallel/vectorized for loops to COLi\n";
+        }
+    }
+
+    // TODO(psuriana): add GPU schedules
+}
+
+void CodeGen_Coli::generate_schedules() {
+    internal_assert(!order.empty());
+    stream << "\n";
+    do_indent();
+    stream << "// Add schedules.\n";
+    for (size_t i = 0; i < order.size(); ++i) {
+        const Function &func = order[i];
 
         // TODO(psuriana): schedule the update definition as well
-
-        // Tag any parallel/vectorize dimensions
-        const vector<Dim> &dims = func.definition().schedule().dims();
-        size_t dim_size = dims.size() - 1; // Ignore outermost
-        debug(0) << "***DIM SIZE: " << dim_size << "\n";
-        for (size_t i = 0; i < dim_size; ++i) {
-            const Dim &d = dims[i];
-            if (d.for_type == ForType::Parallel) {
-                debug(0) << "****PARALLEL " << func.name() << "." << d.var << "\n";
-                do_indent();
-                stream << func.name() << ".tag_parallel_dimension(" << std::to_string(dim_size - i) << ");\n";
-            } else if (d.for_type == ForType::Vectorized) {
-                debug(0) << "****VECTORIZE " << func.name() << "." << d.var << "\n";
-                do_indent();
-                stream << func.name() << ".tag_vector_dimension(" << std::to_string(dim_size - i) << ");\n";
-            } else {
-                internal_assert(d.for_type == ForType::Serial)
-                    << "Can only emit serial/parallel/vectorized for loops to COLi\n";
-            }
-        }
-
-        // TODO(psuriana): add GPU schedules
+        generate_schedule(func, func.definition().schedule(), i);
     }
 }
 
 CodeGen_Coli::~CodeGen_Coli() {
-    generate_schedule();
+    generate_schedules();
 
     // Bind the output and input buffers
     ostringstream buffers_stream;
@@ -664,9 +707,9 @@ void CodeGen_Coli::visit(const Let *op) {
 }
 
 void CodeGen_Coli::visit(const LetStmt *op) {
-    scope.push(op->name, op->value);
+    scope.push_back(std::make_pair(op->name, op->value));
     print(op->body);
-    scope.pop(op->name);
+    scope.pop_back();
 }
 
 void CodeGen_Coli::visit(const ProducerConsumer *op) {
@@ -701,8 +744,23 @@ void CodeGen_Coli::visit(const For *op) {
     const Variable *extent = op->extent.as<Variable>();
     internal_assert(extent != NULL) << "Extent of a loop should have been a variable.\n";
 
-    Expr min_val = scope.get(min->name);
-    Expr extent_val = scope.get(extent->name);
+    Expr min_val;
+    for (int i = scope.size() - 1; i >= 0; --i) {
+        if (scope[i].first == min->name) {
+            min_val = scope[i].second;
+            break;
+        }
+    }
+    internal_assert(min_val.defined());
+
+    Expr extent_val;
+    for (int i = scope.size() - 1; i >= 0; --i) {
+        if (scope[i].first == extent->name) {
+            extent_val = scope[i].second;
+            break;
+        }
+    }
+    internal_assert(extent_val.defined());
 
     // Substitute it in all references to some other variables in the min/extent val
     min_val = substitute_in_lets(min_val);
@@ -728,7 +786,7 @@ void CodeGen_Coli::visit(const Load *op) {
 
 void CodeGen_Coli::visit(const Provide *op) {
     internal_assert(computation_list.find(op->name) == computation_list.end())
-        << "Duplicate computation is not currently supported.\n";
+        << "Duplicate computation \"" << op->name << "\" is not currently supported.\n";
     internal_assert(temporary_buffers.count("buff_" + op->name) || output_buffers.count("buff_" + op->name))
         << "The buffer should have been allocated previously.\n";
 
@@ -767,14 +825,8 @@ void CodeGen_Coli::visit(const Provide *op) {
 }
 
 Expr CodeGen_Coli::substitute_in_lets(Expr expr) const {
-    vector<pair<string, Expr>> replacements;
-    typename Scope<Expr>::const_iterator iter;
-    for (iter = scope.cbegin(); iter != scope.cend(); ++iter) {
-        replacements.push_back(std::make_pair(iter.name(), iter.value()));
-    }
-
-    for (int i = replacements.size() - 1; i >= 0; --i) {
-        expr = substitute(replacements[i].first, replacements[i].second, expr);
+    for (int i = scope.size() - 1; i >= 0; --i) {
+        expr = substitute(scope[i].first, scope[i].second, expr);
     }
     return simplify(expr);
 }
@@ -803,8 +855,9 @@ void CodeGen_Coli::visit(const Realize *op) {
     // Assert that the bounds on the dimensions start from 0 for now.
     for (size_t i = 0; i < bounds.size(); ++i) {
         user_assert(is_zero(bounds[i].min))
-            << "Bound of realize node should start from 0 for now.\n"
-            << "Got " << bounds[i].min << " instead.\n";
+            << "Bound of realize node \"" << op->name << "\" should start from 0 for now.\n"
+            << "Got " << bounds[i].min << " instead.\n"
+            << "Original bound min: " << op->bounds[i].min << "\n";
     }
 
     // Create a temporary buffer

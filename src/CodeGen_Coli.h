@@ -8,8 +8,9 @@
 
 #include "IRPrinter.h"
 #include "Function.h"
-#include "Scope.h"
 #include "Simplify.h"
+#include "Schedule.h"
+
 
 namespace Halide {
 
@@ -58,7 +59,7 @@ private:
 
     std::set<std::string> output_buffers;
     std::set<std::string> input_buffers;
-    Scope<Expr> scope; // Scope of the variables
+    std::vector<std::pair<std::string, Expr>> scope; // Scope of the variables
     std::vector<Loop> loop_dims;
     std::set<std::string> temporary_buffers;
     std::set<std::string> computation_list;
@@ -69,7 +70,8 @@ private:
     std::string get_loop_bound_vars() const;
     std::string get_loop_bounds() const;
     void define_constant(const std::string &name, Expr value);
-    void generate_schedule();
+    void generate_schedules();
+    void generate_schedule(const Function &func, const Schedule &schedule, size_t i);
 
     Expr substitute_in_lets(Expr expr) const;
 

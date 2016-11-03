@@ -7,9 +7,9 @@
 
 namespace Halide {
 
-LoopLevel::LoopLevel(Internal::IntrusivePtr<Internal::FunctionContents> f, 
-                     const std::string &var_name, 
-                     bool is_rvar) 
+LoopLevel::LoopLevel(Internal::IntrusivePtr<Internal::FunctionContents> f,
+                     const std::string &var_name,
+                     bool is_rvar)
     : function_contents(f), var_name(var_name), is_rvar(is_rvar) {}
 LoopLevel::LoopLevel(Internal::Function f, VarOrRVar v) : LoopLevel(f.get_contents(), v.name(), v.is_rvar) {}
 LoopLevel::LoopLevel(Func f, VarOrRVar v) : LoopLevel(f.function().get_contents(), v.name(), v.is_rvar) {}
@@ -50,7 +50,7 @@ std::string LoopLevel::to_string() const {
 }
 
 bool LoopLevel::match(const std::string &loop) const {
-    return Internal::starts_with(loop, func_name() + ".") && 
+    return Internal::starts_with(loop, func_name() + ".") &&
            Internal::ends_with(loop, "." + var_name);
 }
 
