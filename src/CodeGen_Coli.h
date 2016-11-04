@@ -6,7 +6,7 @@
  * Defines an IRPrinter that emits C++ COLi code equivalent to a halide stmt
  */
 
-#include "IRPrinter.h"
+#include "IRVisitor.h"
 #include "Function.h"
 #include "Simplify.h"
 #include "Schedule.h"
@@ -21,7 +21,7 @@ namespace Internal {
  * definition, and some things are handled differently to be valid
  * C++.
  */
-class CodeGen_Coli : public IRPrinter {
+class CodeGen_Coli : public IRVisitor {
 public:
     /** Initialize a COLi code generator pointing at a particular output
      * stream (e.g. a file, or std::cout) */
@@ -37,7 +37,7 @@ public:
                  const std::map<std::string, Function> &env);
     ~CodeGen_Coli();
 
-    void print(Expr e);
+    std::string print(Expr e);
     void print(Stmt s);
 
     EXPORT static void test();
@@ -58,6 +58,10 @@ private:
         }
     };
 
+    std::string expr;
+    std::ostream &stream;
+    int indent;
+
     std::string func; // Represent one Halide pipeline
     const std::vector<std::string> &order;
     const std::map<std::string, Function> &env;
@@ -70,17 +74,20 @@ private:
     std::set<std::string> computation_list;
     std::set<std::string> constant_list;
     int loop_depth;
+    std::string buffer_str;
+
+    std::string do_indent() const;
 
     void push_loop_dim(const std::string &name, Expr min, Expr extent,
                        const std::string &func_name, int stage, const std::string &var);
     void pop_loop_dim();
     std::string get_loop_bound_vars() const;
     std::string get_loop_bounds() const;
-    void define_constant(const std::string &name, Expr value);
+    std::string define_constant(const std::string &name, Expr value);
     void generate_schedules();
     void generate_schedule(const Function &func, int stage, const Schedule &schedule, size_t i);
 
-    Expr substitute_in_lets(Expr expr) const;
+    Expr substitute_in_scope(Expr expr) const;
 
     std::string get_current_func_name() const;
     int get_current_stage() const;
@@ -88,7 +95,7 @@ private:
     void generate_buffer(const Realize *op, int stage);
 
 protected:
-    using IRPrinter::visit;
+    using IRVisitor::visit;
 
     void visit(const IntImm *);
     void visit(const UIntImm *);

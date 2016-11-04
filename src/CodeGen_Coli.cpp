@@ -49,11 +49,12 @@ std::string to_string(const std::vector<T>& v) {
     return ss.str();
 }
 
-void CodeGen_Coli::print(Expr e) {
+string CodeGen_Coli::print(Expr e) {
     internal_assert(e.defined()) << "CodeGen_Coli can't convert undefined expr.\n";
     // For now, substitute in all lets to make life easier (does not substitute in lets in stmt though)
     e = substitute_in_all_lets(e);
     e.accept(this);
+    return expr;
 }
 
 void CodeGen_Coli::print(Stmt s) {
@@ -80,8 +81,7 @@ string print_name(const string &name) {
     return oss.str();
 }
 
-string halide_type_to_coli_type_str(Type type)
-{
+string halide_type_to_coli_type_str(Type type) {
     if (type.is_uint()) {
         if (type.bits() == 8) {
             return "coli::p_uint8";
@@ -182,7 +182,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
                            const vector<Type> &input_buffer_types,
                            const vector<string> &order,
                            const map<string, Function> &env)
-        : IRPrinter(dest), func(pipeline_name), order(order), env(env), loop_depth(0) {
+        : stream(dest), indent(0), func(pipeline_name), order(order), env(env), loop_depth(0), buffer_str("") {
 
     internal_assert(outputs.size() == output_buffer_extents.size());
     internal_assert(output_buffer_extents.size() == output_buffer_types.size());
@@ -196,11 +196,11 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
 
     indent += tab_size;
 
-    do_indent();
+    stream << do_indent();
     stream << "// Set default coli options.\n";
-    do_indent();
+    stream << do_indent();
     stream << "global::set_default_coli_options();\n\n";
-    do_indent();
+    stream << do_indent();
     stream << "coli::function " << func << "(\"" << func << "\")" << ";\n";
 
     // Allocate the output buffers
@@ -226,7 +226,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
         sizes << "}";
 
         string buffer_name = "buff_" + print_name(f.name() + ".s" + std::to_string(f.updates().size()));
-        do_indent();
+        stream << do_indent();
         stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
                << f.args().size() << ", " << sizes.str() << ", "
                << halide_type_to_coli_type_str(type) << ", NULL, coli::a_output, "
@@ -256,7 +256,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
         sizes << "}";
 
         string buffer_name = "buff_" + print_name(input_name);
-        do_indent();
+        stream << do_indent();
         stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
                << buffer_extents.size() << ", " << sizes.str() << ", "
                << halide_type_to_coli_type_str(type) << ", NULL, coli::a_input, "
@@ -274,14 +274,14 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
             iter_space_str = "{" + input_name + dims_str + ": " + get_loop_bounds() + "}";
         }
 
-        do_indent();
+        stream << do_indent();
         stream << "coli::computation " << input_name << "(\"" << iter_space_str << "\", "
                << "expr(), false, " << halide_type_to_coli_type_str(type)
                << ", &" << func << ");\n";
 
         // 1-to-1 mapping to buffer
         string access_str = "{" + input_name + dims_str + "->" + "buff_" + input_name + dims_str + "}";
-        do_indent();
+        stream << do_indent();
         stream << input_name << ".set_access(\"" << access_str << "\");\n";
         stream << "\n";
 
@@ -325,7 +325,7 @@ void CodeGen_Coli::generate_schedule(const Function &func, int stage,
             int index = get_split_fuse_dim_index(dims, split.old_var);
 
             debug(0) << "Splitting " << func.name() << "." << split.old_var << "(" << index << ")\n";
-            do_indent();
+            stream << do_indent();
             stream << func.name() << ".split(" << std::to_string(index) << ", "
                    << split.factor << ");\n";
 
@@ -339,12 +339,12 @@ void CodeGen_Coli::generate_schedule(const Function &func, int stage,
         const Dim &d = dims[i];
         if (d.for_type == ForType::Parallel) {
             debug(5) << "...Parallelize " << name << "." << d.var << "\n";
-            do_indent();
+            stream << do_indent();
             stream << name << ".tag_parallel_dimension(" << std::to_string(dim_size - i) << ");\n";
         } else if (d.for_type == ForType::Vectorized) {
             internal_error << "Does not currently support vectorization\n";
             /*debug(5) << "...Vectorize " << name << "." << d.var << "\n";
-            do_indent();
+            stream << do_indent();
             stream << name << ".tag_vector_dimension(" << std::to_string(dim_size - i) << ");\n";*/
         } else {
             internal_assert(d.for_type == ForType::Serial)
@@ -358,7 +358,7 @@ void CodeGen_Coli::generate_schedule(const Function &func, int stage,
 void CodeGen_Coli::generate_schedules() {
     internal_assert(!order.empty());
     stream << "\n";
-    do_indent();
+    stream << do_indent();
     stream << "// Add schedules.\n";
     for (size_t i = 0; i < order.size(); ++i) {
         const string &func_name = order[i];
@@ -400,27 +400,35 @@ CodeGen_Coli::~CodeGen_Coli() {
     buffers_stream << "}";
 
     stream << "\n";
-    do_indent();
+    stream << do_indent();
     stream << func << ".set_arguments(" << buffers_stream.str() << ");\n";
-    do_indent();
+    stream << do_indent();
     stream << func << ".gen_time_processor_domain();\n";
-    do_indent();
+    stream << do_indent();
     stream << func << ".gen_isl_ast();\n";
-    do_indent();
+    stream << do_indent();
     stream << func << ".gen_halide_stmt();\n";
-    do_indent();
+    stream << do_indent();
     stream << func << ".dump_halide_stmt();\n";
-    do_indent();
+    stream << do_indent();
     stream << func << ".gen_halide_obj(\"build/generated_" << func << "_test.o\");\n";
 
     stream << "\n";
-    do_indent();
+    stream << do_indent();
     stream << "return 0;\n";
 
     indent -= tab_size;
 
-    do_indent();
+    stream << do_indent();
     stream << "}\n\n";
+}
+
+string CodeGen_Coli::do_indent() const {
+    ostringstream ss;
+    for (int i = 0; i < indent; i++) {
+        ss << ' ';
+    }
+    return ss.str();
 }
 
 void CodeGen_Coli::push_loop_dim(const string &name, Expr min, Expr extent,
@@ -504,197 +512,240 @@ void CodeGen_Coli::visit(const Allocate *op) {
 }
 
 void CodeGen_Coli::visit(const IntImm *op) {
-    stream << "coli::expr(";
+    ostringstream ss;
+    ss << "coli::expr(";
     if (op->type.bits() == 8) {
-        stream << "(int8_t)";
+        ss << "(int8_t)";
     } else if (op->type.bits() == 16) {
-        stream << "(int16_t)";
+        ss << "(int16_t)";
     } else if (op->type.bits() == 32) {
-        stream << "(int32_t)";
+        ss << "(int32_t)";
     }
-    stream << op->value << ")";
+    ss << op->value << ")";
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const UIntImm *op) {
-    stream << "coli::expr(";
+    ostringstream ss;
+    ss << "coli::expr(";
     if (op->type.bits() == 8) {
-        stream << "(uint8_t)";
+        ss << "(uint8_t)";
     } else if (op->type.bits() == 16) {
-        stream << "(uint16_t)";
+        ss << "(uint16_t)";
     } else if (op->type.bits() == 32) {
-        stream << "(uint32_t)";
+        ss << "(uint32_t)";
     }
-    stream << op->value << ")";
+    ss << op->value << ")";
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const FloatImm *op) {
+    ostringstream ss;
     if (op->type.bits() == 32) {
-        stream << "coli::expr((float)" << op->value << ")";
+        ss << "coli::expr((float)" << op->value << ")";
     } else if (op->type.bits() == 64) {
-        stream << "coli::expr(" << op->value << ")";
+        ss << "coli::expr(" << op->value << ")";
     } else {
         // Only support 32- and 64-bit integer
         user_error << "Conversion of float " << op->type.bits() << "_t to COLi is not currently supported.\n";
     }
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Cast *op) {
-    stream << "coli::expr(coli::o_cast, ";
-    stream << halide_type_to_coli_type_str(op->type);
-    stream << ", ";
-    print(op->value);
-    stream << ")";
+    ostringstream ss;
+    ss << "coli::expr(coli::o_cast, ";
+    ss << halide_type_to_coli_type_str(op->type);
+    ss << ", ";
+    ss << print(op->value);
+    ss << ")";
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Variable *op) {
     user_assert(!op->param.defined() && !op->image.defined())
         << "Can only handle conversion of simple variable to COLi for now.\n";
 
+    ostringstream ss;
     const auto &iter = constant_list.find(op->name);
     if (iter != constant_list.end()) {
         // It is a reference to variable defined in Let/LetStmt
         //TODO(psuriana): when do we actually generate constant???
-        stream << (*iter) << "(0)";
+        ss << (*iter) << "(0)";
     } else {
         // It is presumably a reference to loop variable
-        stream << "coli::idx(\"" << op->name << "\")";
+        ss << "coli::idx(\"" << op->name << "\")";
     }
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Add *op) {
-    stream << '(';
-    print(op->a);
-    stream << " + ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " + ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Sub *op) {
-    stream << '(';
-    print(op->a);
-    stream << " - ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " - ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Mul *op) {
-    stream << '(';
-    print(op->a);
-    stream << "*";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << "*";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Div *op) {
-    stream << '(';
-    print(op->a);
-    stream << "/";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << "/";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Mod *op) {
-    stream << '(';
-    print(op->a);
-    stream << " % ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " % ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Min *op) {
-    stream << "coli::expr(coli::o_min, ";
-    print(op->a);
-    stream << ", ";
-    print(op->b);
-    stream << ")";
+    ostringstream ss;
+    ss << "coli::expr(coli::o_min, ";
+    ss << print(op->a);
+    ss << ", ";
+    ss << print(op->b);
+    ss << ")";
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Max *op) {
-    stream << "coli::expr(coli::o_max, ";
-    print(op->a);
-    stream << ", ";
-    print(op->b);
-    stream << ")";
+    ostringstream ss;
+    ss << "coli::expr(coli::o_max, ";
+    ss << print(op->a);
+    ss << ", ";
+    ss << print(op->b);
+    ss << ")";
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const EQ *op) {
-    stream << '(';
-    print(op->a);
-    stream << " == ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " == ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const NE *op) {
-    stream << '(';
-    print(op->a);
-    stream << " != ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " != ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const LT *op) {
-    stream << '(';
-    print(op->a);
-    stream << " < ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " < ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const LE *op) {
-    stream << '(';
-    print(op->a);
-    stream << " <= ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " <= ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const GT *op) {
-    stream << '(';
-    print(op->a);
-    stream << " > ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " > ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const GE *op) {
-    stream << '(';
-    print(op->a);
-    stream << " >= ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " >= ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const And *op) {
-    stream << '(';
-    print(op->a);
-    stream << " && ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " && ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Or *op) {
-    stream << '(';
-    print(op->a);
-    stream << " || ";
-    print(op->b);
-    stream << ')';
+    ostringstream ss;
+    ss << '(';
+    ss << print(op->a);
+    ss << " || ";
+    ss << print(op->b);
+    ss << ')';
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Not *op) {
-    stream << '!';
-    print(op->a);
+    ostringstream ss;
+    ss << '!';
+    ss << print(op->a);
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Select *op) {
-    do_indent();
-    stream << "coli::expr(coli::o_cond, ";
-    print(op->condition);
-    stream << ", ";
-    print(op->true_value);
-    stream << ", ";
-    print(op->false_value);
-    stream << ")";
+    ostringstream ss;
+    ss << "coli::expr(coli::o_cond, ";
+    ss << print(op->condition);
+    ss << ", ";
+    ss << print(op->true_value);
+    ss << ", ";
+    ss << print(op->false_value);
+    ss << ")";
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Let *op) {
@@ -720,7 +771,7 @@ void CodeGen_Coli::visit(const ProducerConsumer *op) {
 
     if (op->is_producer) {
         stream << "\n";
-        do_indent();
+        stream << do_indent();
         stream << "// Define compute level for \"" << op->name << "\".\n";
 
         internal_assert(env.count(op->name));
@@ -730,11 +781,11 @@ void CodeGen_Coli::visit(const ProducerConsumer *op) {
         if (compute_at.is_root() || compute_at.is_inline()) {
             if (order[0] == op->name) {
                 // Initial definition
-                do_indent();
+                stream << do_indent();
                 stream << print_name(op->name + ".s0") << ".first(computation::root_dimension);\n";
                 // Update definitions
                 for (size_t i = 0; i < func.updates().size(); ++i) {
-                    do_indent();
+                    stream << do_indent();
                     stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".first(computation::root_dimension);\n";
                 }
             } else {
@@ -744,12 +795,12 @@ void CodeGen_Coli::visit(const ProducerConsumer *op) {
                 int order_index = iter - order.begin();
 
                 // Initial definition
-                do_indent();
+                stream << do_indent();
                 stream << print_name(op->name + ".s0") << ".after(" << print_name(order[order_index-1] + "_s")
                        << std::to_string(func.updates().size()) << ", computation::root_dimension);\n";
                 // Update definitions
                 for (size_t i = 0; i < func.updates().size(); ++i) {
-                    do_indent();
+                    stream << do_indent();
                     stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".after("
                            << print_name(order[order_index-1] + "_s") << ", computation::root_dimension);\n";
                 }
@@ -764,11 +815,11 @@ void CodeGen_Coli::visit(const ProducerConsumer *op) {
             debug(5) << "Compute Func " << op->name << " at " << compute_at.var().name() << "(" << loop_depth << ")\n";
 
             // Initial definition
-            do_indent();
+            stream << do_indent();
             stream << print_name(op->name + ".s0") << ".after(" << parent << ", " << std::to_string(loop_depth) << ");\n";
             // Update definitions
             for (size_t i = 0; i < func.updates().size(); ++i) {
-                do_indent();
+                stream << do_indent();
                 stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".after(" << parent
                        << ", " << std::to_string(loop_depth) << ");\n";
             }
@@ -776,19 +827,22 @@ void CodeGen_Coli::visit(const ProducerConsumer *op) {
     }
 }
 
-void CodeGen_Coli::define_constant(const string &name, Expr val) {
+string CodeGen_Coli::define_constant(const string &name, Expr val) {
     internal_assert(constant_list.find(name) == constant_list.end())
         << "Redefinition of lets is not supported right now.\n";
 
+    ostringstream ss;
+
     val = simplify(val);
 
-    do_indent();
-    stream << "coli::constant " << name << "(\"" << name << "\", ";
-    print(val);
-    stream << ", " << halide_type_to_coli_type_str(val.type())
-           << ", true, NULL, 0, &" << func << ");\n";
+    ss << "coli::constant " << name << "(\"" << name << "\", ";
+    ss << print(val);
+    ss << ", " << halide_type_to_coli_type_str(val.type())
+       << ", true, NULL, 0, &" << func << ");\n";
 
     constant_list.insert(name);
+
+    return ss.str();
 }
 
 void CodeGen_Coli::visit(const For *op) {
@@ -837,14 +891,16 @@ void CodeGen_Coli::visit(const For *op) {
     internal_assert(extent_val.defined());
 
     // Substitute it in all references to some other variables in the min/extent val
-    min_val = substitute_in_lets(min_val);
-    extent_val = substitute_in_lets(extent_val);
+    min_val = substitute_in_scope(min_val);
+    extent_val = substitute_in_scope(extent_val);
 
     stream << "\n";
-    do_indent();
+    stream << do_indent();
     stream << "// Define loop bounds for dimension \"" << op->name << "\".\n";
-    define_constant(min->name, min_val);
-    define_constant(extent->name, extent_val);
+    stream << do_indent();
+    stream << define_constant(min->name, min_val);
+    stream << do_indent();
+    stream << define_constant(extent->name, extent_val);
 
     print(op->body);
     pop_loop_dim();
@@ -875,35 +931,44 @@ void CodeGen_Coli::visit(const Provide *op) {
     }
     user_assert(op->values.size() == 1) << "Expect 1D store (no tuple) in the Provide node for now.\n";
 
-    do_indent();
-    stream << "coli::computation " << name << "(\"";
+    ostringstream ss;
+
+    ss << do_indent();
+    ss << "coli::computation " << name << "(\"";
     indent += 5*tab_size;
 
     string dims_str = to_string(op->args);
     string symbolic_str = get_loop_bound_vars();
     if (!symbolic_str.empty()) {
-        stream << get_loop_bound_vars() + "->{" << name + dims_str << ": \"\n";
+        ss << get_loop_bound_vars() + "->{" << name + dims_str << ": \"\n";
     } else {
-        stream << "{" << name << dims_str + ": \"\n";
+        ss << "{" << name << dims_str + ": \"\n";
     }
 
-    do_indent();
-    stream << "\"" << get_loop_bounds() << "}\", \n";
-    do_indent();
-    print(op->values[0]);
-    stream << ", true, " << halide_type_to_coli_type_str(op->values[0].type())
+    ss << do_indent();
+    ss << "\"" << get_loop_bounds() << "}\", \n";
+    ss << do_indent();
+    ss << print(op->values[0]);
+    ss << ", true, " << halide_type_to_coli_type_str(op->values[0].type())
            << ", &" << func << ");\n";
     indent -= 5*tab_size;
 
     // 1-to-1 mapping to buffer
     string access_str = "{" + name + dims_str + "->" + buffer_name + dims_str + "}";
-    do_indent();
-    stream << name << ".set_access(\"" << access_str << "\");\n";
+    ss << do_indent();
+    ss << name << ".set_access(\"" << access_str << "\");\n";
 
+    if (!buffer_str.empty()) {
+        stream << do_indent();
+        stream << buffer_str;
+        buffer_str = "";
+    }
+
+    stream << ss.str();
     computation_list.insert(name);
 }
 
-Expr CodeGen_Coli::substitute_in_lets(Expr expr) const {
+Expr CodeGen_Coli::substitute_in_scope(Expr expr) const {
     for (int i = scope.size() - 1; i >= 0; --i) {
         expr = substitute(scope[i].first, scope[i].second, expr);
     }
@@ -926,8 +991,8 @@ void CodeGen_Coli::generate_buffer(const Realize *op, int stage) {
 
     // Substitute it in all references to some other variables in the bounds
     for (Range &r : bounds) {
-        r.min = substitute_in_lets(r.min);
-        r.extent = substitute_in_lets(r.extent);
+        r.min = substitute_in_scope(r.min);
+        r.extent = substitute_in_scope(r.extent);
     }
 
     // Assert that the bounds on the dimensions start from 0 for now.
@@ -941,13 +1006,13 @@ void CodeGen_Coli::generate_buffer(const Realize *op, int stage) {
     // Create a temporary buffer
 
     string buffer_name = "buff_" + name;
-    do_indent();
+    stream << do_indent();
     stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
            << bounds.size() << ", ";
 
     stream << "{";
     for (size_t i = 0; i < bounds.size(); ++i) {
-        print(bounds[i].extent);
+        stream << print(bounds[i].extent);
         if (i != bounds.size() - 1) {
             stream << ", ";
         }
@@ -964,7 +1029,7 @@ void CodeGen_Coli::visit(const Realize *op) {
     // We will ignore the condition on the Realize node for now.
 
     stream << "\n";
-    do_indent();
+    stream << do_indent();
     stream << "// Define temporary buffers for \"" << op->name << "\".\n";
 
     internal_assert(env.count(op->name));
@@ -982,30 +1047,43 @@ void CodeGen_Coli::visit(const Realize *op) {
 }
 
 void CodeGen_Coli::visit(const Call *op) {
+    ostringstream ss;
     if (op->is_intrinsic(Call::shift_right)) {
         internal_assert(op->args.size() == 2);
-        stream << '(';
-        print(op->args[0]);
-        stream << " >> ";
-        print(op->args[1]);
-        stream << ')';
+        ss << '(';
+        ss << print(op->args[0]);
+        ss << " >> ";
+        ss << print(op->args[1]);
+        ss << ')';
     } else if (op->is_intrinsic(Call::shift_left)) {
         internal_assert(op->args.size() == 2);
-        stream << '(';
-        print(op->args[0]);
-        stream << " << ";
-        print(op->args[1]);
-        stream << ')';
+        ss << '(';
+        ss << print(op->args[0]);
+        ss << " << ";
+        ss << print(op->args[1]);
+        ss << ')';
     } else if ((op->name == "floor_f16") || (op->name == "floor_f32") || (op->name == "floor_f64")) {
         internal_assert(op->args.size() == 1);
-        stream << "coli::expr(o_floor, ";
-        print(op->args[0]);
-        stream << ')';
+        ss << "coli::expr(o_floor, ";
+        ss << print(op->args[0]);
+        ss << ')';
     } else {
         user_assert((op->call_type == Call::CallType::Halide) || (op->call_type == Call::CallType::Image))
             << "Only handle call to halide func or image for now.\n"
             << Expr(op) << "\n"
             << "is pure? " << op->is_pure() << "\n";
+
+        //TODO(psuriana): need to normalize the index
+        vector<Expr> normalized_args(op->args);
+        for (auto &arg : normalized_args) {
+            // Normalize it by introduction let Expr if it is not a Sub or Add or Variable
+            if (!(arg.as<Variable>() || arg.as<Add>() || arg.as<Sub>())) {
+                string var_name = unique_name('t');
+                Expr var = Variable::make(Int(32), var_name);
+                buffer_str = define_constant(var_name, substitute_in_scope(arg));
+                arg = var;
+            }
+        }
 
         string call_name;
         if (op->call_type == Call::CallType::Halide) {
@@ -1018,15 +1096,16 @@ void CodeGen_Coli::visit(const Call *op) {
             call_name = print_name(op->name);
         }
 
-        stream << call_name << "(";
-        for (size_t i = 0; i < op->args.size(); i++) {
-            print(op->args[i]);
-            if (i < op->args.size() - 1) {
-                stream << ", ";
+        ss << call_name << "(";
+        for (size_t i = 0; i < normalized_args.size(); i++) {
+            ss << print(normalized_args[i]);
+            if (i < normalized_args.size() - 1) {
+                ss << ", ";
             }
         }
-        stream << ")";
+        ss << ")";
     }
+    expr = ss.str();
 }
 
 void CodeGen_Coli::visit(const Block *op) {

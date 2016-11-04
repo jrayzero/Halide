@@ -11,6 +11,19 @@ Expr mixf(Expr x, Expr y, Expr a) {
 }
 
 int main(int argc, char **argv) {
+    if (1) {
+        Func f("f");
+        Var x("x"), y("y");
+
+        Func in("in");
+        in(x, y) = x + y;
+        Image<int> input = in.realize(100, 50);
+
+        f(x, y) = cast(Float(32), input(max(x, y), y) >> 2);
+        Image<int> f_img(Int(32), 100, 50);
+        f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
+    }
+
     if (0) {
         Func f("f");
         Var x("x"), y("y");
@@ -160,7 +173,7 @@ int main(int argc, char **argv) {
         resampled.compile_to_coli({resampled_img}, "fusion_coli", {}, "fusion_coli");
     }
 
-    if (1) {
+    if (0) {
         const int WIDTH = 256;
         const int HEIGHT = 128;
 
