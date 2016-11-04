@@ -182,7 +182,8 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
                            const vector<Type> &input_buffer_types,
                            const vector<string> &order,
                            const map<string, Function> &env)
-        : stream(dest), indent(0), func(pipeline_name), order(order), env(env), loop_depth(0), buffer_str("") {
+        : stream(dest), indent(0), func(pipeline_name), order(order), env(env), loop_depth(0),
+          current_computation("") {
 
     internal_assert(outputs.size() == output_buffer_extents.size());
     internal_assert(output_buffer_extents.size() == output_buffer_types.size());
@@ -225,7 +226,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
         }
         sizes << "}";
 
-        string buffer_name = "buff_" + print_name(f.name() + ".s" + std::to_string(f.updates().size()));
+        string buffer_name = "buff_" + print_name(f.name());
         stream << do_indent();
         stream << "coli::buffer " << buffer_name << "(\"" << buffer_name << "\", "
                << f.args().size() << ", " << sizes.str() << ", "
@@ -829,7 +830,7 @@ void CodeGen_Coli::visit(const ProducerConsumer *op) {
 
 string CodeGen_Coli::define_constant(const string &name, Expr val) {
     internal_assert(constant_list.find(name) == constant_list.end())
-        << "Redefinition of lets is not supported right now.\n";
+        << "Redefinition of lets \"" << name << "\" is not supported right now.\n";
 
     ostringstream ss;
 
@@ -839,6 +840,27 @@ string CodeGen_Coli::define_constant(const string &name, Expr val) {
     ss << print(val);
     ss << ", " << halide_type_to_coli_type_str(val.type())
        << ", true, NULL, 0, &" << func << ");\n";
+
+    constant_list.insert(name);
+
+    return ss.str();
+}
+
+string CodeGen_Coli::define_wrapper_let(const string &computation_name,
+                                        const string &name, Expr val) {
+    internal_assert(constant_list.find(name) == constant_list.end())
+        << "Redefinition of lets \"" << name << "\" is not supported right now.\n";
+    internal_assert(!current_computation.empty())
+        << "The computation name should not be empty.\n";
+
+    ostringstream ss;
+
+    val = simplify(val);
+
+    ss << "coli::constant " << name << "(\"" << name << "\", ";
+    ss << print(val);
+    ss << ", " << halide_type_to_coli_type_str(val.type())
+       << ", false, &" << computation_name << ", 1, &" << func << ");\n";
 
     constant_list.insert(name);
 
@@ -918,7 +940,10 @@ void CodeGen_Coli::visit(const Load *op) {
 
 void CodeGen_Coli::visit(const Provide *op) {
     string name = print_name(op->name + "_s" + std::to_string(get_current_stage()));
-    string buffer_name = "buff_" + name;
+    string buffer_name = "buff_" + print_name(op->name);
+
+    string old_computation = current_computation;
+    current_computation = name;
 
     internal_assert(computation_list.find(name) == computation_list.end())
         << "Duplicate computation \"" << op->name << "\" is not currently supported.\n";
@@ -953,19 +978,23 @@ void CodeGen_Coli::visit(const Provide *op) {
            << ", &" << func << ");\n";
     indent -= 5*tab_size;
 
-    // 1-to-1 mapping to buffer
-    string access_str = "{" + name + dims_str + "->" + buffer_name + dims_str + "}";
-    ss << do_indent();
-    ss << name << ".set_access(\"" << access_str << "\");\n";
-
-    if (!buffer_str.empty()) {
-        stream << do_indent();
-        stream << buffer_str;
-        buffer_str = "";
-    }
-
     stream << ss.str();
     computation_list.insert(name);
+
+    if (!buffer_str.empty()) {
+        for (const auto &str : buffer_str) {
+            stream << do_indent();
+            stream << str;
+        }
+        buffer_str.clear();
+    }
+
+    // 1-to-1 mapping to buffer
+    string access_str = "{" + name + dims_str + "->" + buffer_name + dims_str + "}";
+    stream << do_indent();
+    stream << name << ".set_access(\"" << access_str << "\");\n";
+
+    current_computation = old_computation;
 }
 
 Expr CodeGen_Coli::substitute_in_scope(Expr expr) const {
@@ -975,8 +1004,8 @@ Expr CodeGen_Coli::substitute_in_scope(Expr expr) const {
     return simplify(expr);
 }
 
-void CodeGen_Coli::generate_buffer(const Realize *op, int stage) {
-    string name = print_name(op->name + "_s" + std::to_string(stage));
+void CodeGen_Coli::generate_buffer(const Realize *op) {
+    string name = print_name(op->name);
 
     user_assert(temporary_buffers.find("buff_" + name) == temporary_buffers.end())
         << "Duplicate allocation (i.e. duplicate compute) is not currently supported.\n";
@@ -1035,13 +1064,7 @@ void CodeGen_Coli::visit(const Realize *op) {
     internal_assert(env.count(op->name));
     Function func = env.find(op->name)->second;
 
-    // Initial definition
-    generate_buffer(op, 0);
-
-    // Update definitions
-    for (size_t i = 0; i < func.updates().size(); ++i) {
-        generate_buffer(op, i+1);
-    }
+    generate_buffer(op);
 
     print(op->body);
 }
@@ -1077,10 +1100,10 @@ void CodeGen_Coli::visit(const Call *op) {
         vector<Expr> normalized_args(op->args);
         for (auto &arg : normalized_args) {
             // Normalize it by introduction let Expr if it is not a Sub or Add or Variable
-            if (!(arg.as<Variable>() || arg.as<Add>() || arg.as<Sub>())) {
+            if (!(arg.as<Variable>() || is_const(arg) || arg.as<Add>() || arg.as<Sub>())) {
                 string var_name = unique_name('t');
                 Expr var = Variable::make(Int(32), var_name);
-                buffer_str = define_constant(var_name, substitute_in_scope(arg));
+                buffer_str.push_back(define_wrapper_let(current_computation, var_name, substitute_in_scope(arg)));
                 arg = var;
             }
         }

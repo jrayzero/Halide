@@ -11,7 +11,20 @@ Expr mixf(Expr x, Expr y, Expr a) {
 }
 
 int main(int argc, char **argv) {
-    if (1) {
+    if (0) {
+        Func f("f");
+        Var x("x"), y("y");
+
+        Func in("in");
+        in(x, y) = x + y;
+        Image<int> input = in.realize(100, 50);
+
+        f(x, y) = cast(Float(32), input(x, y) >> 2);
+        Image<int> f_img(Int(32), 100, 50);
+        f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
+    }
+
+    if (0) {
         Func f("f");
         Var x("x"), y("y");
 
@@ -90,12 +103,13 @@ int main(int argc, char **argv) {
 
     // CVT Color benchmark
     if (0) {
-        const int N = 100;
+        const int WIDTH = 1024;
+        const int HEIGHT = 1024;
 
-        Image<int> in(N, N, 3);
+        Image<int> in(WIDTH, HEIGHT, 3);
         for (int c = 0; c < 3; c++) {
-            for (int y = 0; y < N; y++) {
-                for (int x = 0; x < N; x++) {
+            for (int y = 0; y < HEIGHT; y++) {
+                for (int x = 0; x < WIDTH; x++) {
                     in(x, y, c) = rand() & 0xffffffff;
                 }
             }
@@ -115,7 +129,8 @@ int main(int argc, char **argv) {
                                   + in(x, y, 0) * R2Y),
                                   yuv_shift));
 
-        Image<uint8_t> RGB2Gray_img(UInt(8), N, N);
+        //RGB2Gray.realize(WIDTH, HEIGHT);
+        Image<uint8_t> RGB2Gray_img(UInt(8), WIDTH, HEIGHT);
         RGB2Gray.compile_to_coli({RGB2Gray_img}, "fusion_coli", {}, "fusion_coli");
     }
 
@@ -173,6 +188,7 @@ int main(int argc, char **argv) {
         resampled.compile_to_coli({resampled_img}, "fusion_coli", {}, "fusion_coli");
     }
 
+    // Wrap affine benchmark
     if (0) {
         const int WIDTH = 256;
         const int HEIGHT = 128;
@@ -229,6 +245,75 @@ int main(int argc, char **argv) {
 
         Image<uint8_t> affine_img(UInt(8), WIDTH, HEIGHT);
         affine.compile_to_coli({affine_img}, "fusion_coli", {}, "fusion_coli");
+    }
+
+    // Filter 2D nordom benchmark
+    if (1) {
+        const int RADIUS = 3;
+
+        const int WIDTH = 1024;
+        const int HEIGHT = 1024;
+
+        Image<float> in(WIDTH, HEIGHT);
+        Image<float> kernel(2*RADIUS, 2*RADIUS);
+
+        Func filter2D_nordom{"filter2D_nordom"};
+        Var x("x"), y("y");
+
+        Expr e = 0.0f;
+
+        for (int i=-RADIUS; i<RADIUS; i++) {
+            for (int j=-RADIUS; j<RADIUS; j++)  {
+                e += in(x+RADIUS+i, y+RADIUS+j) * kernel(RADIUS+i, RADIUS+j);
+            }
+        }
+
+        filter2D_nordom(x, y) = e;
+
+        filter2D_nordom.parallel(y);//.vectorize(x, 8);
+
+        //filter2D_nordom.realize(WIDTH, HEIGHT);
+
+        Image<float> filter2D_nordom_img(Float(32), WIDTH, HEIGHT);
+        filter2D_nordom.compile_to_coli({filter2D_nordom_img}, "fusion_coli", {}, "fusion_coli");
+    }
+
+    // Gaussian 3x3 benchmark
+    if (0) {
+        const int WIDTH = 1024;
+        const int HEIGHT = 1024;
+        const int kernelX_length = 7;
+        const int kernelY_length = 7;
+
+        Image<float> in(WIDTH, HEIGHT);
+        Image<float> kernelX(kernelX_length);
+        Image<float> kernelY(kernelY_length);
+
+        Func gaussian("gaussian");
+        Func gaussian_x("gaussian_x");
+        Var x("x"), y("y");
+
+        Expr e,f;
+        e = 0.0f;
+        for (int i=0; i<kernelX_length; i++) {
+            e += in(x+i,y) * kernelX(i);
+        }
+        gaussian_x(x, y) = e;
+
+        f = 0.0f;
+        for (int i=0; i<kernelX_length; i++) {
+            f += gaussian_x(x, y+i) * kernelY(i);
+        }
+
+        gaussian(x, y) = f;
+
+        gaussian_x.compute_root();
+        gaussian.compute_root();
+
+        //gaussian.realize(WIDTH, HEIGHT);
+
+        Image<float> gaussian_img(Float(32), WIDTH, HEIGHT);
+        gaussian.compile_to_coli({gaussian_img}, "fusion_coli", {}, "fusion_coli");
     }
 
     printf("Success!\n");

@@ -74,7 +74,8 @@ private:
     std::set<std::string> computation_list;
     std::set<std::string> constant_list;
     int loop_depth;
-    std::string buffer_str;
+    std::vector<std::string> buffer_str;
+    std::string current_computation;
 
     std::string do_indent() const;
 
@@ -84,6 +85,7 @@ private:
     std::string get_loop_bound_vars() const;
     std::string get_loop_bounds() const;
     std::string define_constant(const std::string &name, Expr value);
+    std::string define_wrapper_let(const std::string &computation_name, const std::string &name, Expr value);
     void generate_schedules();
     void generate_schedule(const Function &func, int stage, const Schedule &schedule, size_t i);
 
@@ -92,7 +94,7 @@ private:
     std::string get_current_func_name() const;
     int get_current_stage() const;
 
-    void generate_buffer(const Realize *op, int stage);
+    void generate_buffer(const Realize *op);
 
 protected:
     using IRVisitor::visit;
