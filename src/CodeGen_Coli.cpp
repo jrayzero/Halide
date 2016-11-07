@@ -118,6 +118,43 @@ string halide_type_to_coli_type_str(Type type) {
     return "coli::p_none";
 }
 
+string halide_type_to_c_type_str(Type type) {
+    if (type.is_uint()) {
+        if (type.bits() == 8) {
+            return "uint8_t";
+        } else if (type.bits() == 16) {
+            return "uint16_t";
+        } else if (type.bits() == 32) {
+            return "uint32_t";
+        } else {
+            return "uint64_t";
+        }
+    } else if (type.is_int()) {
+        if (type.bits() == 8) {
+            return "int8_t";
+        } else if (type.bits() == 16) {
+            return "int16_t";
+        } else if (type.bits() == 32) {
+            return "int32_t";
+        } else {
+            return "int64_t";
+        }
+    } else if (type.is_float()) {
+        if (type.bits() == 32) {
+            return "float";
+        } else if (type.bits() == 64) {
+            return "double";
+        } else {
+            user_error << "Floats other than 32 and 64 bits are not suppored in C.\n";
+        }
+    } else if (type.is_bool()) {
+        return "bool";
+    } else {
+        user_error << "Halide type cannot be translated to C type.\n";
+    }
+    return "void";
+}
+
 class NormalizeVariableName : public IRMutator {
     using IRMutator::visit;
 
@@ -180,6 +217,8 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
                            const vector<string> &inputs,
                            const vector<vector<int32_t>> &input_buffer_extents,
                            const vector<Type> &input_buffer_types,
+                           const vector<string> &input_params,
+                           const vector<Type> &input_param_types,
                            const vector<string> &order,
                            const map<string, Function> &env)
         : stream(dest), indent(0), func(pipeline_name), order(order), env(env), loop_depth(0),
@@ -204,22 +243,47 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
     stream << do_indent();
     stream << "coli::function " << func << "(\"" << func << "\")" << ";\n";
 
+    // Define the input params
+    if (!input_params.empty()) {
+        stream << "\n";
+        stream << do_indent();
+        stream << "// Input params.\n";
+        for (size_t k = 0; k < input_params.size(); ++k) {
+            const string &param_name = input_params[k];
+            const Type &type = input_param_types[k];
+
+            string extent_str = print_name(param_name);
+            extent_list.insert(extent_str);
+            stream << do_indent();
+            // Just assigned it to some random number
+            stream << halide_type_to_c_type_str(type) << " " << extent_str << " = 0;\n";
+        }
+    }
+
     // Allocate the output buffers
+    stream << "\n";
+    stream << do_indent();
+    stream << "// Output buffers.\n";
     for (size_t k = 0; k < outputs.size(); ++k) {
         const Function &f = outputs[k];
         const vector<int32_t> &buffer_extents = output_buffer_extents[k];
-        const Type type = output_buffer_types[k];
+        const Type &type = output_buffer_types[k];
 
         internal_assert(buffer_extents.size() == f.args().size());
 
         ostringstream sizes;
         sizes << "{";
         for (size_t i = 0; i < buffer_extents.size(); ++i) {
-            sizes << "coli::expr(" << buffer_extents[i] << ")";
             string min_str = print_name(f.name() + ".min." + std::to_string(i));
+
             string extent_str = print_name(f.name() + ".extent." + std::to_string(i));
+            extent_list.insert(extent_str);
+            stream << do_indent();
+            stream << "int " << extent_str << " = " << buffer_extents[i] << ";\n";
+
+            sizes << "coli::expr(" << extent_str << ")";
             scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
-            scope.push_back(std::make_pair(extent_str, make_const(Int(32), buffer_extents[i])));
+            //scope.push_back(std::make_pair(extent_str, make_const(Int(32), buffer_extents[i])));
             if (i != buffer_extents.size() - 1) {
                 sizes << ", ";
             }
@@ -236,10 +300,13 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
     }
 
     // Bind to the input buffers
+    stream << "\n";
+    stream << do_indent();
+    stream << "// Input buffers.\n";
     for (size_t k = 0; k < inputs.size(); ++k) {
         const string &input_name = inputs[k];
         const vector<int32_t> &buffer_extents = input_buffer_extents[k];
-        const Type type = input_buffer_types[k];
+        const Type &type = input_buffer_types[k];
 
         vector<string> dummy_dims(buffer_extents.size());
 
@@ -247,9 +314,14 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
         sizes << "{";
         for (size_t i = 0; i < buffer_extents.size(); ++i) {
             dummy_dims[i] = "i" + std::to_string(i);
-            push_loop_dim(dummy_dims[i], make_const(Int(32), 0), buffer_extents[i], input_name, 0, "");
+            string extent_str = print_name(input_name + ".extent." + std::to_string(i));
+            extent_list.insert(extent_str);
+            stream << do_indent();
+            stream << "int " << extent_str << " = " << buffer_extents[i] << ";\n";
 
-            sizes << "coli::expr(" << buffer_extents[i] << ")";
+            push_loop_dim(dummy_dims[i], make_const(Int(32), 0), Variable::make(Int(32), extent_str), input_name, 0, "");
+
+            sizes << "coli::expr(" << extent_str << ")";
             if (i != buffer_extents.size() - 1) {
                 sizes << ", ";
             }
@@ -412,7 +484,7 @@ CodeGen_Coli::~CodeGen_Coli() {
     stream << do_indent();
     stream << func << ".dump_halide_stmt();\n";
     stream << do_indent();
-    stream << func << ".gen_halide_obj(\"build/generated_" << func << "_test.o\");\n";
+    stream << func << ".gen_halide_obj(\"build/generated_fct_" << func << "_test.o\");\n";
 
     stream << "\n";
     stream << do_indent();
@@ -574,8 +646,13 @@ void CodeGen_Coli::visit(const Variable *op) {
         //TODO(psuriana): when do we actually generate constant???
         ss << (*iter) << "(0)";
     } else {
-        // It is presumably a reference to loop variable
-        ss << "coli::idx(\"" << op->name << "\")";
+        const auto &it = extent_list.find(op->name);
+        if (it != extent_list.end()) {
+            ss << "coli::expr(" << op->name << ")";
+        } else {
+            // It is presumably a reference to loop variable
+            ss << "coli::idx(\"" << op->name << "\")";
+        }
     }
     expr = ss.str();
 }
@@ -761,7 +838,7 @@ void CodeGen_Coli::visit(const LetStmt *op) {
 
 void CodeGen_Coli::visit(const ProducerConsumer *op) {
     internal_assert(!op->is_producer || (computation_list.find(op->name) == computation_list.end()))
-        << "Found another computation with the same name.\n";
+        << "Found another computation with the same name \"" << op->name << "\".\n";
 
     vector<Loop> old_loop_dims = loop_dims;
     int old_loop_depth = loop_depth;
@@ -1148,6 +1225,8 @@ void print_to_coli(Stmt s, ostream &dest, const string &pipeline_name,
                    const vector<string> &inputs,
                    const vector<vector<int32_t>> &input_buffer_extents,
                    const vector<Type> &input_buffer_types,
+                   const vector<string> &input_params,
+                   const vector<Type> &input_param_types,
                    const vector<string> &order,
                    const map<string, Function> &env) {
 
@@ -1159,7 +1238,7 @@ void print_to_coli(Stmt s, ostream &dest, const string &pipeline_name,
 
     CodeGen_Coli cg(dest, pipeline_name, outputs, output_buffer_extents,
                     output_buffer_types, inputs, input_buffer_extents,
-                    input_buffer_types, order, env);
+                    input_buffer_types, input_params, input_param_types, order, env);
     cg.print(s);
 }
 

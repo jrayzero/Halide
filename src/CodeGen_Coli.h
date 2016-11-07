@@ -33,6 +33,8 @@ public:
                  const std::vector<std::string> &inputs,
                  const std::vector<std::vector<int32_t>> &input_buffer_extents,
                  const std::vector<Type> &input_buffer_types,
+                 const std::vector<std::string> &input_params,
+                 const std::vector<Type> &input_param_types,
                  const std::vector<std::string> &order,
                  const std::map<std::string, Function> &env);
     ~CodeGen_Coli();
@@ -73,6 +75,7 @@ private:
     std::set<std::string> temporary_buffers;
     std::set<std::string> computation_list;
     std::set<std::string> constant_list;
+    std::set<std::string> extent_list;
     int loop_depth;
     std::vector<std::string> buffer_str;
     std::string current_computation;
@@ -153,6 +156,8 @@ EXPORT void print_to_coli(
     const std::vector<std::string> &inputs,
     const std::vector<std::vector<int32_t>> &input_buffer_extents,
     const std::vector<Type> &input_buffer_types,
+    const std::vector<std::string> &input_params,
+    const std::vector<Type> &input_param_types,
     const std::vector<std::string> &order,
     const std::map<std::string, Function> &env);
 

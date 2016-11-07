@@ -11,20 +11,7 @@ Expr mixf(Expr x, Expr y, Expr a) {
 }
 
 int main(int argc, char **argv) {
-    if (0) {
-        Func f("f");
-        Var x("x"), y("y");
-
-        Func in("in");
-        in(x, y) = x + y;
-        Image<int> input = in.realize(100, 50);
-
-        f(x, y) = cast(Float(32), input(x, y) >> 2);
-        Image<int> f_img(Int(32), 100, 50);
-        f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
-    }
-
-    if (0) {
+    if (0) { // Not working
         Func f("f");
         Var x("x"), y("y");
 
@@ -33,24 +20,10 @@ int main(int argc, char **argv) {
         Image<int> input = in.realize(100, 50);
 
         f(x, y) = cast(Float(32), input(max(x, y), y) >> 2);
-        Image<int> f_img(Int(32), 100, 50);
-        f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
+        f.compile_to_coli("fusion_coli", {}, "fusion_coli");
     }
 
-    if (0) {
-        Func f("f");
-        Var x("x"), y("y");
-
-        Func in("in");
-        in(x, y) = x + y;
-        Image<int> input = in.realize(100, 50);
-
-        f(x, y) = cast(Float(32), input(x, y) >> 2);
-        Image<int> f_img(Int(32), 100, 50);
-        f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
-    }
-
-    if (0) {
+    if (0) { // With reduction
         Func f("f");
         Var x("x"), y("y");
 
@@ -60,8 +33,31 @@ int main(int argc, char **argv) {
 
         RDom r(0, 100);
         f(x) += input(x, r);
-        Image<int> f_img(Int(32), 100);
-        f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
+        f.compile_to_coli("/Users/psuriana/COLi/Halide/fusion_coli.cpp", {}, "fusion_coli");
+    }
+
+    if (1) {
+        Func f("f");
+        Var x("x"), y("y");
+
+        Func in("in");
+        in(x, y) = x + y;
+        Image<int> input = in.realize(100, 50);
+
+        f(x, y) = cast(Float(32), input(x, y) >> 2);
+        f.compile_to_coli("/Users/psuriana/COLi/Halide/fusion_coli.cpp", {}, "fusion_coli");
+    }
+
+    if (0) {
+        Func f("f");
+        Var x("x"), y("y");
+
+        Func in("in");
+        in(x, y) = x + y;
+        Image<int> input = in.realize(100, 50);
+
+        f(x, y) = cast(Float(32), input(x, y) >> 2);
+        f.compile_to_coli("fusion_coli", {}, "fusion_coli");
     }
 
     if (0) {
@@ -76,7 +72,7 @@ int main(int argc, char **argv) {
 
         f(x, y) = cast(Float(32), in(x, y) >> 2);
         Image<int> f_img(Int(32), 100, 50);
-        f.compile_to_coli({f_img}, "fusion_coli", {}, "fusion_coli");
+        f.compile_to_coli("fusion_coli", {}, "fusion_coli");
     }
 
     if (0) {
@@ -96,27 +92,15 @@ int main(int argc, char **argv) {
         RDom r(0, N);
         C(x,y) += A(x,r) * B(r,y);
 
-        //C.realize(N, N);
-        Image<int> C_img(Int(32), N, N);
-        C.compile_to_coli({C_img}, "fusion_coli", {}, "fusion_coli");
+        C.compile_to_coli("fusion_coli", {}, "fusion_coli");
     }
 
     // CVT Color benchmark
     if (0) {
-        const int WIDTH = 1024;
-        const int HEIGHT = 1024;
-
-        Image<int> in(WIDTH, HEIGHT, 3);
-        for (int c = 0; c < 3; c++) {
-            for (int y = 0; y < HEIGHT; y++) {
-                for (int x = 0; x < WIDTH; x++) {
-                    in(x, y, c) = rand() & 0xffffffff;
-                }
-            }
-        }
+        ImageParam in{UInt(8), 3, "input"};
 
         Func RGB2Gray{"RGB2Gray"};
-        Var x("x"), y("y"), c("c");
+        Var x,y,c;
 
         const Expr yuv_shift = cast<uint32_t>(14);
         const Expr R2Y = cast<uint32_t>(4899);
@@ -129,20 +113,16 @@ int main(int argc, char **argv) {
                                   + in(x, y, 0) * R2Y),
                                   yuv_shift));
 
-        //RGB2Gray.realize(WIDTH, HEIGHT);
-        Image<uint8_t> RGB2Gray_img(UInt(8), WIDTH, HEIGHT);
-        RGB2Gray.compile_to_coli({RGB2Gray_img}, "fusion_coli", {}, "fusion_coli");
+        RGB2Gray.parallel(y);//.vectorize(x, 8);
+
+        RGB2Gray.compile_to_coli("cvtcolor", {in}, "cvtcolor");
     }
 
     // Resize benchmark
     if (0) {
-        const int WIDTH = 256;
-        const int HEIGHT = 128;
-
-        Image<uint8_t> in(WIDTH, HEIGHT);
-
-        int resampled_rows = 32;
-        int resampled_cols = 64;
+        ImageParam in(UInt(8), 2, "input");
+        Param<int> resampled_rows;
+        Param<int> resampled_cols;
 
         Func resampled("resampled");
         Var x("x"), y("y");
@@ -184,23 +164,18 @@ int main(int argc, char **argv) {
         //TODO(psuriana): vectorize is not currently working
         resampled.parallel(y);//.vectorize(x, 8);
 
-        Image<uint8_t> resampled_img(UInt(8), WIDTH, HEIGHT);
-        resampled.compile_to_coli({resampled_img}, "fusion_coli", {}, "fusion_coli");
+        resampled.compile_to_coli("fusion_coli", {in, resampled_rows, resampled_cols}, "fusion_coli");
     }
 
     // Wrap affine benchmark
     if (0) {
-        const int WIDTH = 256;
-        const int HEIGHT = 128;
-
-        Image<uint8_t> in(WIDTH, HEIGHT);
-
-        float a00 = 0.1;
-        float a01 = 0.1;
-        float a10 = 0.1;
-        float a11 = 0.1;
-        float b00 = 0.1;
-        float b10 = 0.1;
+        ImageParam in{UInt(8), 2, "input"};
+        Param<float> a00;
+        Param<float> a01;
+        Param<float> a10;
+        Param<float> a11;
+        Param<float> b00;
+        Param<float> b10;
 
         Func affine{"affine"};
         Var x("x"), y("y");
@@ -243,19 +218,16 @@ int main(int argc, char **argv) {
         //TODO(psuriana): vectorize is not currently working
         affine.parallel(y);//.vectorize(x, 8);
 
-        Image<uint8_t> affine_img(UInt(8), WIDTH, HEIGHT);
-        affine.compile_to_coli({affine_img}, "fusion_coli", {}, "fusion_coli");
+        affine.compile_to_coli("fusion_coli", {in, a00, a01, a10, a11, b00, b10}, "fusion_coli");
     }
 
     // Filter 2D nordom benchmark
-    if (1) {
+    if (0) {
         const int RADIUS = 3;
 
-        const int WIDTH = 1024;
-        const int HEIGHT = 1024;
-
-        Image<float> in(WIDTH, HEIGHT);
-        Image<float> kernel(2*RADIUS, 2*RADIUS);
+        ImageParam in{Float(32), 2, "input"};
+        // kernel is 2*radius x 2*radius
+        ImageParam kernel{Float(32), 2, "kernel"};
 
         Func filter2D_nordom{"filter2D_nordom"};
         Var x("x"), y("y");
@@ -272,22 +244,16 @@ int main(int argc, char **argv) {
 
         filter2D_nordom.parallel(y);//.vectorize(x, 8);
 
-        //filter2D_nordom.realize(WIDTH, HEIGHT);
-
-        Image<float> filter2D_nordom_img(Float(32), WIDTH, HEIGHT);
-        filter2D_nordom.compile_to_coli({filter2D_nordom_img}, "fusion_coli", {}, "fusion_coli");
+        filter2D_nordom.compile_to_coli("filter2Dnordom", {in, kernel}, "filter2Dnordom");
     }
 
     // Gaussian 3x3 benchmark
     if (0) {
-        const int WIDTH = 1024;
-        const int HEIGHT = 1024;
         const int kernelX_length = 7;
-        const int kernelY_length = 7;
 
-        Image<float> in(WIDTH, HEIGHT);
-        Image<float> kernelX(kernelX_length);
-        Image<float> kernelY(kernelY_length);
+        ImageParam in{Float(32), 2, "input"};
+        ImageParam kernelX{Float(32), 1, "kernelx"};
+        ImageParam kernelY{Float(32), 1, "kernely"};
 
         Func gaussian("gaussian");
         Func gaussian_x("gaussian_x");
@@ -312,8 +278,7 @@ int main(int argc, char **argv) {
 
         //gaussian.realize(WIDTH, HEIGHT);
 
-        Image<float> gaussian_img(Float(32), WIDTH, HEIGHT);
-        gaussian.compile_to_coli({gaussian_img}, "fusion_coli", {}, "fusion_coli");
+        gaussian.compile_to_coli("gaussian3x3", {in, kernelX, kernelY}, "gaussian3x3");
     }
 
     printf("Success!\n");

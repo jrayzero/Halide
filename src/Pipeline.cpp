@@ -237,14 +237,12 @@ void Pipeline::compile_to_c(const string &filename,
     m.compile(Outputs().c_source(output_name(filename, m, ".c")));
 }
 
-void Pipeline::compile_to_coli(Realization dst,
-                               const string &filename,
+void Pipeline::compile_to_coli(const string &filename,
                                const vector<Argument> &args,
                                const string &fn_name,
                                const Target &target) {
 
-    string name = output_name(filename, fn_name, ".cpp");
-    debug(0) << "Compile to pipeline " << fn_name << " to COLi " << name << "\n";
+    debug(0) << "Compile to pipeline " << filename << " to COLi " << fn_name << "\n";
 
     user_assert(defined()) << "Can't compile undefined Pipeline\n";
     string new_fn_name(fn_name);
@@ -262,29 +260,18 @@ void Pipeline::compile_to_coli(Realization dst,
     map<string, Function> env;
     Stmt body = lower(contents->outputs, fn_name, target, order, env, custom_passes, true);
 
+    vector<string> non_inlined_order;
+    for (const auto &f : order) {
+        internal_assert(env.count(f));
+        if (!env.find(f)->second.definition().schedule().compute_level().is_inline()) {
+            non_inlined_order.push_back(f);
+        }
+    }
+    internal_assert(!non_inlined_order.empty());
+
     // Get all the arguments/global images referenced in this function.
     vector<Argument> public_args = build_public_args(args, target);
     vector<BufferPtr> global_images = validate_arguments(public_args, body);
-
-    internal_assert(contents->outputs.size() == dst.size());
-
-    vector<vector<int32_t>> output_buffer_extents(contents->outputs.size());
-    vector<Type> output_buffer_types(contents->outputs.size());
-    for (size_t i = 0; i < dst.size(); ++i) {
-        BufferPtr buf = dst[i];
-        output_buffer_types[i] = buf.type();
-        for (int j = 0; j < buf.dimensions(); ++j) {
-            Expr min_expr = buf.dim(j).min();
-            Expr extent_expr = buf.dim(j).extent();
-            const IntImm *min = min_expr.as<IntImm>();
-            const IntImm *extent = extent_expr.as<IntImm>();
-            internal_assert((min != nullptr) && (extent != nullptr));
-            internal_assert(min->value == 0);
-            internal_assert(extent->value > 0);
-            output_buffer_extents[i].push_back(extent->value);
-            debug(0) << "VAL: " << extent->value << "\n";
-        }
-    }
 
     vector<string> inputs;
     vector<vector<int32_t>> input_buffer_extents;
@@ -307,20 +294,57 @@ void Pipeline::compile_to_coli(Realization dst,
         input_buffer_extents.push_back(buffer_extents);
     }
 
-    //std::ofstream file(name);
-    std::ostringstream stream;
+    vector<string> outputs;
+    vector<vector<int32_t>> output_buffer_extents;
+    vector<Type> output_buffer_types;
 
-    debug(0) << "\n********\nORDER:\n";
-    for (const auto &f : order) {
-        debug(0) << "..." << f << "\n";
+    vector<string> input_params;
+    vector<Type> input_param_types;
+
+    for (const Argument &arg : public_args) {
+        if (arg.is_buffer()) {
+            if (arg.is_input()) {
+                inputs.push_back(arg.name);
+                input_buffer_types.push_back(arg.type);
+                vector<int32_t> buffer_extents;
+                for (int i = 0; i < arg.dimensions; ++i) {
+                    // Just use some random value since it's going to be replaced anyway
+                    buffer_extents.push_back(1024);
+                }
+                input_buffer_extents.push_back(buffer_extents);
+            } else {
+                internal_assert(arg.is_output());
+                outputs.push_back(arg.name);
+                output_buffer_types.push_back(arg.type);
+                vector<int32_t> buffer_extents;
+                for (int i = 0; i < arg.dimensions; ++i) {
+                    // Just use some random value since it's going to be replaced anyway
+                    buffer_extents.push_back(1024);
+                }
+                output_buffer_extents.push_back(buffer_extents);
+            }
+        } else {
+            input_params.push_back(arg.name);
+            input_param_types.push_back(arg.type);
+        }
     }
-    debug(0) << "\n";
 
+    internal_assert(contents->outputs.size() == outputs.size());
+    internal_assert(contents->outputs.size() == output_buffer_types.size());
+    internal_assert(contents->outputs.size() == output_buffer_extents.size());
+
+
+    std::ostringstream stream;
     Internal::print_to_coli(body, stream, fn_name, contents->outputs,
                             output_buffer_extents, output_buffer_types,
                             inputs, input_buffer_extents, input_buffer_types,
-                            order, env);
+                            input_params, input_param_types,
+                            non_inlined_order, env);
     debug(0) << "Generated COLi:\n" << stream.str() << "\n";
+
+    std::ofstream file(filename);
+    file << stream.str();
+    file.close();
 }
 
 void Pipeline::print_loop_nest() {
