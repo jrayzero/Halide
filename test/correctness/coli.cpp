@@ -23,20 +23,38 @@ int main(int argc, char **argv) {
         f.compile_to_coli("fusion_coli.cpp", {}, "fusion_coli");
     }
 
-    if (0) { // With reduction
+    if (1) { // With reduction
         Func f("f");
-        Var x("x"), y("y");
+        Var x("x"), y("y"), z("z");
 
-        Func in("in");
-        in(x, y) = x + y;
-        Image<int> input = in.realize(50, 100);
+        Func input("input");
+        input(x, y, z) = cast<uint8_t>(13);
+        input.compute_root();
 
-        RDom r(0, 100);
-        f(x) += input(x, r);
-        f.compile_to_coli("fusion_coli.cpp", {}, "fusion_coli");
+        RDom r(0, 10);
+        f(x, y) = cast<uint8_t>(0);
+        f(x, y) += input(x, y, r);
+        f.compile_to_coli("test_reduction_operator.cpp", {}, "test_reduction_operator");
     }
 
-    if (1) {
+    if (0) {
+        const int N = 100;
+
+        ImageParam A(Int(8), 2, "A");
+        ImageParam B(Int(8), 2, "B");
+
+        Func C("C");
+        Var x("x"), y("y");
+
+        RDom r(0, N);
+
+        C(x, y) = cast<int8_t>(0);
+        C(x, y) += A(x, r) * B(r, y);
+
+        C.compile_to_coli("fusion_coli.cpp", {A, B}, "fusion_coli");
+    }
+
+    if (0) {
         Func f("f");
         Var x("x"), y("y");
 

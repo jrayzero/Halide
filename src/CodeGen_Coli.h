@@ -99,6 +99,9 @@ private:
 
     void generate_buffer(const Realize *op);
 
+    std::vector<std::string> get_stage_dims(const std::string &name, int stage, bool ignore_rvar) const;
+    std::vector<std::string> get_stage_rvars(const std::string &name, int stage) const;
+
 protected:
     using IRVisitor::visit;
 

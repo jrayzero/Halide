@@ -273,7 +273,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
 
         ostringstream sizes;
         sizes << "{";
-        for (size_t i = 0; i < buffer_extents.size(); ++i) {
+        for (int i = buffer_extents.size()-1; i >= 0; --i) {
             string min_str = print_name(f.name() + ".min." + std::to_string(i));
 
             string extent_str = print_name(f.name() + ".extent." + std::to_string(i));
@@ -284,7 +284,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
             sizes << "coli::expr(" << extent_str << ")";
             scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
             //scope.push_back(std::make_pair(extent_str, make_const(Int(32), buffer_extents[i])));
-            if (i != buffer_extents.size() - 1) {
+            if (i != 0) {
                 sizes << ", ";
             }
         }
@@ -308,21 +308,23 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
         const vector<int32_t> &buffer_extents = input_buffer_extents[k];
         const Type &type = input_buffer_types[k];
 
-        vector<string> dummy_dims(buffer_extents.size());
+        vector<string> dummy_dims;
 
         ostringstream sizes;
         sizes << "{";
-        for (size_t i = 0; i < buffer_extents.size(); ++i) {
-            dummy_dims[i] = "i" + std::to_string(i);
+        for (int i = buffer_extents.size()-1; i >= 0; --i) {
+            string dummy_dim = "i" + std::to_string(i);
+            dummy_dims.push_back(dummy_dim);
+
             string extent_str = print_name(input_name + ".extent." + std::to_string(i));
             extent_list.insert(extent_str);
             stream << do_indent();
             stream << "int " << extent_str << " = " << buffer_extents[i] << ";\n";
 
-            push_loop_dim(dummy_dims[i], make_const(Int(32), 0), Variable::make(Int(32), extent_str), input_name, 0, "");
+            push_loop_dim(dummy_dim, make_const(Int(32), 0), Variable::make(Int(32), extent_str), input_name, 0, "");
 
             sizes << "coli::expr(" << extent_str << ")";
-            if (i != buffer_extents.size() - 1) {
+            if (i != 0) {
                 sizes << ", ";
             }
         }
@@ -360,7 +362,7 @@ CodeGen_Coli::CodeGen_Coli(ostream &dest, const string &pipeline_name,
 
         computation_list.insert(input_name);
 
-        for (size_t i = 0; i < buffer_extents.size(); ++i) {
+        for (int i = buffer_extents.size()-1; i >= 0; --i) {
             pop_loop_dim();
         }
     }
@@ -521,6 +523,41 @@ string CodeGen_Coli::get_current_func_name() const {
 int CodeGen_Coli::get_current_stage() const {
     internal_assert(!loop_dims.empty());
     return loop_dims[loop_dims.size()-1].stage;
+}
+
+vector<string> CodeGen_Coli::get_stage_dims(const string &name, int stage, bool ignore_rvar) const {
+    internal_assert(env.count(name));
+    const Function &func = env.find(name)->second;
+    const Schedule &schedule = (stage == 0) ? func.definition().schedule() : func.update(stage-1).schedule();
+    const vector<Dim> &dims = schedule.dims();
+
+    vector<string> dim_str;
+    // Ignore __outermost
+    for (int i = dims.size()-2; i >= 0; --i) {
+        if (ignore_rvar) {
+            if (dims[i].is_rvar()) {
+                continue;
+            }
+        }
+        dim_str.push_back(print_name(name + ".s" + std::to_string(stage) + "." + dims[i].var));
+    }
+    return dim_str;
+}
+
+vector<string> CodeGen_Coli::get_stage_rvars(const string &name, int stage) const {
+    internal_assert(env.count(name));
+    const Function &func = env.find(name)->second;
+    const Schedule &schedule = (stage == 0) ? func.definition().schedule() : func.update(stage-1).schedule();
+    const vector<Dim> &dims = schedule.dims();
+
+    vector<string> dim_str;
+    // Ignore __outermost
+    for (int i = dims.size()-2; i >= 0; --i) {
+        if (dims[i].is_rvar()) {
+            dim_str.push_back(print_name(name + ".s" + std::to_string(stage) + "." + dims[i].var));
+        }
+    }
+    return dim_str;
 }
 
 string CodeGen_Coli::get_loop_bound_vars() const {
@@ -864,7 +901,8 @@ void CodeGen_Coli::visit(const ProducerConsumer *op) {
                 // Update definitions
                 for (size_t i = 0; i < func.updates().size(); ++i) {
                     stream << do_indent();
-                    stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".first(computation::root_dimension);\n";
+                    stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".after("
+                           << print_name(op->name + ".s" + std::to_string(i)) << ", computation::root_dimension);\n";
                 }
             } else {
                 const auto iter = std::find_if(order.begin(), order.end(),
@@ -872,15 +910,18 @@ void CodeGen_Coli::visit(const ProducerConsumer *op) {
                 internal_assert(iter != order.end());
                 int order_index = iter - order.begin();
 
+                internal_assert(env.count(order[order_index-1]));
+                const Function &prev = env.find(order[order_index-1])->second;
+
                 // Initial definition
                 stream << do_indent();
-                stream << print_name(op->name + ".s0") << ".after(" << print_name(order[order_index-1] + "_s")
-                       << std::to_string(func.updates().size()) << ", computation::root_dimension);\n";
+                stream << print_name(op->name + ".s0") << ".after(" << print_name(prev.name() + "_s")
+                       << std::to_string(prev.updates().size()) << ", computation::root_dimension);\n";
                 // Update definitions
                 for (size_t i = 0; i < func.updates().size(); ++i) {
                     stream << do_indent();
                     stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".after("
-                           << print_name(order[order_index-1] + "_s") << ", computation::root_dimension);\n";
+                           << print_name(op->name + ".s" + std::to_string(i)) << ", computation::root_dimension);\n";
                 }
             }
         } else {
@@ -1016,7 +1057,8 @@ void CodeGen_Coli::visit(const Load *op) {
 }
 
 void CodeGen_Coli::visit(const Provide *op) {
-    string name = print_name(op->name + "_s" + std::to_string(get_current_stage()));
+    int stage = get_current_stage();
+    string name = print_name(op->name + "_s" + std::to_string(stage));
     string buffer_name = "buff_" + print_name(op->name);
 
     string old_computation = current_computation;
@@ -1039,24 +1081,35 @@ void CodeGen_Coli::visit(const Provide *op) {
     ss << "coli::computation " << name << "(\"";
     indent += 5*tab_size;
 
-    string dims_str = to_string(op->args);
     string symbolic_str = get_loop_bound_vars();
+    string dim_str = to_string(get_stage_dims(op->name, stage, false));
     if (!symbolic_str.empty()) {
-        ss << get_loop_bound_vars() + "->{" << name + dims_str << ": \"\n";
+        ss << get_loop_bound_vars() + "->{" << name + dim_str << ": \"\n";
     } else {
-        ss << "{" << name << dims_str + ": \"\n";
+        ss << "{" << name << dim_str + ": \"\n";
     }
 
     ss << do_indent();
     ss << "\"" << get_loop_bounds() << "}\", \n";
     ss << do_indent();
-    ss << print(op->values[0]);
+    if (stage == 0) {
+        ss << print(op->values[0]);
+    } else {
+        ss << "coli::expr()";
+    }
+
     ss << ", true, " << halide_type_to_coli_type_str(op->values[0].type())
            << ", &" << func << ");\n";
     indent -= 5*tab_size;
 
-    stream << ss.str();
     computation_list.insert(name);
+
+    if (stage > 0) {
+        ss << do_indent();
+        ss << name << ".set_expression(" << print(op->values[0]) << ");\n";
+    }
+
+    stream << ss.str();
 
     if (!buffer_str.empty()) {
         for (const auto &str : buffer_str) {
@@ -1067,7 +1120,8 @@ void CodeGen_Coli::visit(const Provide *op) {
     }
 
     // 1-to-1 mapping to buffer
-    string access_str = "{" + name + dims_str + "->" + buffer_name + dims_str + "}";
+    string access_str = "{" + name + dim_str + "->" + buffer_name +
+                        to_string(get_stage_dims(op->name, stage, true)) + "}";
     stream << do_indent();
     stream << name << ".set_access(\"" << access_str << "\");\n";
 
@@ -1174,8 +1228,9 @@ void CodeGen_Coli::visit(const Call *op) {
             << "is pure? " << op->is_pure() << "\n";
 
         //TODO(psuriana): need to normalize the index
-        vector<Expr> normalized_args(op->args);
-        for (auto &arg : normalized_args) {
+        vector<Expr> normalized_args;
+        for (int i = op->args.size()-1; i >= 0; --i) {
+            Expr arg = op->args[i];
             // Normalize it by introduction let Expr if it is not a Sub or Add or Variable
             if (!(arg.as<Variable>() || is_const(arg) || arg.as<Add>() || arg.as<Sub>())) {
                 string var_name = unique_name('t');
@@ -1183,15 +1238,35 @@ void CodeGen_Coli::visit(const Call *op) {
                 buffer_str.push_back(define_wrapper_let(current_computation, var_name, substitute_in_scope(arg)));
                 arg = var;
             }
+            normalized_args.push_back(arg);
         }
 
         string call_name;
         if (op->call_type == Call::CallType::Halide) {
+            string current_producer = get_current_func_name();
+            int current_stage = get_current_stage();
+
             internal_assert(env.count(op->name));
             Function func = env.find(op->name)->second;
-            call_name = print_name(op->name + ".s" + std::to_string(func.updates().size()));
+
+            if (op->name != current_producer) {
+                call_name = print_name(op->name + ".s0");
+            } else {
+                call_name = print_name(op->name + ".s" + std::to_string(current_stage));
+            }
+
             internal_assert(computation_list.find(call_name) != computation_list.end())
                 << "Call to computation \"" << call_name << "\" that does not exist.\n";
+
+            if ((current_producer == op->name) && (current_stage > 0)) {
+                // It's a reduction, we need to add the "new" reduction dimension
+                vector<string> rvars = get_stage_rvars(current_producer, current_stage);
+                for (const auto &var_name : rvars) {
+                    Expr var = Variable::make(Int(32), var_name);
+                    normalized_args.push_back(var - 1);
+                }
+            }
+
         } else {
             call_name = print_name(op->name);
         }
