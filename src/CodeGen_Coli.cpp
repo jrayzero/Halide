@@ -413,9 +413,9 @@ void CodeGen_Coli::generate_schedule(const Function &func, int stage,
     for (size_t i = 0; i < dim_size; ++i) {
         const Dim &d = dims[i];
         if (d.for_type == ForType::Parallel) {
-            debug(5) << "...Parallelize " << name << "." << d.var << "\n";
+            debug(5) << "...Parallelize " << name << "." << d.var << " at index " << i << "\n";
             stream << do_indent();
-            stream << name << ".tag_parallel_dimension(" << std::to_string(dim_size - i) << ");\n";
+            stream << name << ".tag_parallel_dimension(" << std::to_string(dim_size - i - 1) << ");\n";
         } else if (d.for_type == ForType::Vectorized) {
             internal_error << "Does not currently support vectorization\n";
             /*debug(5) << "...Vectorize " << name << "." << d.var << "\n";
@@ -1147,12 +1147,15 @@ void CodeGen_Coli::generate_buffer(const Realize *op) {
             << "Realize node should have the same types for all dimensions for now.\n";
     }
 
-    vector<Range> bounds(op->bounds);
+    vector<Range> bounds;
 
     // Substitute it in all references to some other variables in the bounds
-    for (Range &r : bounds) {
+    // Need to reverse it since COLi is from outermost to innermost
+    for (int i = op->bounds.size() - 1; i >= 0; --i) {
+        Range r = op->bounds[i];
         r.min = substitute_in_scope(r.min);
         r.extent = substitute_in_scope(r.extent);
+        bounds.push_back(r);
     }
 
     // Assert that the bounds on the dimensions start from 0 for now.

@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
         f.compile_to_coli("fusion_coli.cpp", {}, "fusion_coli");
     }
 
-    if (1) { // With reduction
+    if (0) { // With reduction
         Func f("f");
         Var x("x"), y("y"), z("z");
 
@@ -136,6 +136,22 @@ int main(int argc, char **argv) {
         RGB2Gray.compile_to_coli("cvtcolor.cpp", {in}, "cvtcolor");
     }
 
+    if (0) {
+        //ImageParam in{UInt(8), 3, "input"};
+        Image<uint8_t> in(1024, 512, 3);
+
+        Func RGB2Gray{"RGB2Gray"};
+        Var x,y,c;
+
+        RGB2Gray(x, y) = cast<uint8_t>(in(x, y, 2) + in(x, y, 1) + in(x, y, 0));
+
+        RGB2Gray.parallel(y);//.vectorize(x, 8);
+
+        RGB2Gray.realize(1024, 512);
+
+        //RGB2Gray.compile_to_coli("cvtcolor.cpp", {in}, "cvtcolor");
+    }
+
     // Filter 2D nordom benchmark
     if (0) {
         const int RADIUS = 3;
@@ -163,7 +179,7 @@ int main(int argc, char **argv) {
     }
 
     // Gaussian 3x3 benchmark
-    if (0) {
+    if (1) {
         const int kernelX_length = 7;
 
         ImageParam in{Float(32), 2, "input"};
