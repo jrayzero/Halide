@@ -486,7 +486,7 @@ CodeGen_Coli::~CodeGen_Coli() {
     stream << do_indent();
     stream << func << ".dump_halide_stmt();\n";
     stream << do_indent();
-    stream << func << ".gen_halide_obj(\"build/generated_fct_" << func << "_test.o\");\n";
+    stream << func << ".gen_halide_obj(\"build/generated_fct_" << func << ".o\");\n";
 
     stream << "\n";
     stream << do_indent();
@@ -673,8 +673,8 @@ void CodeGen_Coli::visit(const Cast *op) {
 }
 
 void CodeGen_Coli::visit(const Variable *op) {
-    user_assert(!op->param.defined() && !op->image.defined())
-        << "Can only handle conversion of simple variable to COLi for now.\n";
+    /*user_assert(!op->param.defined() && !op->image.defined())
+        << "Can only handle conversion of simple variable to COLi for now.\n";*/
 
     ostringstream ss;
     const auto &iter = constant_list.find(op->name);

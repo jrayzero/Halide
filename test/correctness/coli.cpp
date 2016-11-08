@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
         ImageParam in{UInt(8), 3, "input"};
 
         Func RGB2Gray{"RGB2Gray"};
-        Var x,y,c;
+        Var x("x"), y("y"), c("c");
 
         const Expr yuv_shift = cast<uint32_t>(14);
         const Expr R2Y = cast<uint32_t>(4899);
@@ -141,7 +141,7 @@ int main(int argc, char **argv) {
         Image<uint8_t> in(1024, 512, 3);
 
         Func RGB2Gray{"RGB2Gray"};
-        Var x,y,c;
+        Var x("x"), y("y"), c("c");
 
         RGB2Gray(x, y) = cast<uint8_t>(in(x, y, 2) + in(x, y, 1) + in(x, y, 0));
 
@@ -150,6 +150,74 @@ int main(int argc, char **argv) {
         RGB2Gray.realize(1024, 512);
 
         //RGB2Gray.compile_to_coli("cvtcolor.cpp", {in}, "cvtcolor");
+    }
+
+    if (1) {
+        //ImageParam in{UInt(8), 3, "input"};
+        Image<uint8_t> in(2124, 3540, 3);
+
+        Var x("x"), y("y"), c("c");
+        Func f("f"), g("g");
+
+        f(x, y, c) = cast<uint8_t>(255 - in(x, y, c));
+        g(x, y, c) = cast<uint8_t>(100 + in(x, y, c));
+
+        Image<uint8_t> f_im(2124, 3540, 3);
+        Image<uint8_t> g_im(2124, 3540, 3);
+        Pipeline({f, g}).realize({f_im, g_im});
+
+        //Pipeline({f, g}).compile_to_coli("fusion_coli.cpp", {in}, "fusion_coli");
+    }
+
+    if (0) {
+        //ImageParam in{UInt(8), 3, "input"};
+        Image<uint8_t> in(2116, 3538, 3);
+
+        Func RGB2Gray{"RGB2Gray"};
+        Var x("x"), y("y"), c("c");
+
+        const Expr yuv_shift = cast<uint32_t>(14);
+        const Expr R2Y = cast<uint32_t>(4899);
+        const Expr G2Y = cast<uint32_t>(9617);
+        const Expr B2Y = cast<uint32_t>(1868);
+
+
+        RGB2Gray(x, y) = cast<uint8_t>(CV_DESCALE( (in(x, y, 2) * B2Y
+                                  + in(x, y, 1) * G2Y
+                                  + in(x, y, 0) * R2Y),
+                                  yuv_shift));
+
+        RGB2Gray.parallel(y);//.vectorize(x, 8);
+
+        RGB2Gray.realize(2116, 3538);
+
+        //RGB2Gray.compile_to_coli("cvtcolor.cpp", {in}, "cvtcolor");
+    }
+
+    if (0) {
+        ImageParam in{Float(32), 2, "input"};
+        //Image<float> in(2116, 3538, 2);
+
+        Param<float> a0{"a0"};
+        Param<float> a1{"a1"};
+        Param<float> a2{"a2"};
+
+        Func rec_filter{"rec_filter"};
+        Var x, y;
+        RDom r(2, in.width()-3, 0, in.height()-1);
+
+        rec_filter(x, y) = in(x, y);
+        rec_filter(r.x, r.y) = a0*rec_filter(r.x, r.y)
+                             + a1*rec_filter(r.x-1, r.y)
+                             + a2*rec_filter(r.x-2, r.y);
+
+
+        rec_filter.parallel(y);//.vectorize(x, 8);
+        rec_filter.update(0).parallel(r.y);
+
+        //rec_filter.realize(2116, 3538);
+
+        rec_filter.compile_to_coli("recfilter_coli.cpp", {in, a0, a1, a2}, "recfilter_coli");
     }
 
     // Filter 2D nordom benchmark
@@ -179,7 +247,7 @@ int main(int argc, char **argv) {
     }
 
     // Gaussian 3x3 benchmark
-    if (1) {
+    if (0) {
         const int kernelX_length = 7;
 
         ImageParam in{Float(32), 2, "input"};
