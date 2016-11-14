@@ -312,7 +312,7 @@ int main(int argc, char **argv) {
         Param<float> alpha;
         Param<float> beta;
 
-        //Image<float> in(2124, 3540);
+        //Image<float> in(10000, 10000);
         //float alpha = 0.3;
         //float beta = 0.4;
 
@@ -327,7 +327,7 @@ int main(int argc, char **argv) {
         heat2d.parallel(y);//.vectorize(x, 8);
         heat2d.parallel(r.y);//.vectorize(r.x, 8);
 
-        //heat2d.realize(2124, 3540);
+        //heat2d.realize(10000, 10000);
 
         heat2d.compile_to_coli("heat2d_coli.cpp", {in, alpha, beta}, "heat2d_coli");
     }
@@ -337,7 +337,7 @@ int main(int argc, char **argv) {
         Param<float> alpha;
         Param<float> beta;*/
 
-        Image<float> in(2124, 3540);
+        Image<float> in(10000, 10000);
         float alpha = 0.3;
         float beta = 0.4;
 
@@ -352,7 +352,7 @@ int main(int argc, char **argv) {
         divergence2d.parallel(y);//.vectorize(x, 8);
         divergence2d.update().parallel(r.y);//.vectorize(r.x, 8);
 
-        divergence2d.realize(2124, 3540);
+        divergence2d.realize(10000, 10000);
         //divergence2d.compile_to_coli("divergence2d_coli.cpp", {in, alpha, beta}, "divergence2d_coli");
     }
 
