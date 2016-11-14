@@ -214,22 +214,25 @@ int main(int argc, char **argv) {
 
     // Blur x-y
     if (0) {
-        ImageParam input(UInt(8), 3);
+        //ImageParam input(UInt(8), 3);
+        Image<uint8_t> input(2124, 3540, 3);
         Func blur_x("blur_x"), blur_y("blur_y");
         Var x("x"), y("y"), c("c"), xi("xi"), yi("yi");
 
         // The algorithm
-        //blur_x(x, y, c) = (input(x, y, c) + input(x+1, y, c) + input(x+2, y, c))/3;
-        //blur_y(x, y, c) = (blur_x(x, y, c) + blur_x(x, y+1, c) + blur_x(x, y+2, c))/3;
-
         blur_x(x, y, c) = (input(x, y, c) + input(x+1, y, c) + input(x+2, y, c))/3;
         blur_y(x, y, c) = (blur_x(x, y, c) + blur_x(x, y+1, c) + blur_x(x, y+2, c))/3;
 
-        blur_y.compute_root().store_root().parallel(y).parallel(c);
-        blur_x.compute_root().store_root().parallel(y).parallel(c);
+        Var x_inner, y_inner, x_outer, y_outer, tile_index;
+        blur_y.tile(x, y, x_outer, y_outer, x_inner, y_inner, 4, 4)
+              .fuse(x_outer, y_outer, tile_index)
+              .compute_root()
+              .parallel(tile_index)
+              .parallel(c);
+        blur_x.compute_at(blur_y, y_inner);
 
-        //blur_y.realize(2116, 3532, 3);
-        blur_y.compile_to_coli("blurxy_coli.cpp", {input}, "blurxy_coli");
+        blur_y.realize(2116, 3532, 3);
+        //blur_y.compile_to_coli("blurxy_coli.cpp", {input}, "blurxy_coli");
     }
 
     // RGB to YUV420
@@ -281,7 +284,7 @@ int main(int argc, char **argv) {
     }
 
     // Rec-filter
-    if (1) {
+    if (0) {
         //ImageParam in(UInt(8), 3, "input"};
         Image<uint8_t> in(2116, 3538, 3);
 
@@ -302,6 +305,55 @@ int main(int argc, char **argv) {
         rec_filter.realize(2116, 3538, 3);
 
         rec_filter.compile_to_coli("recfilter_coli.cpp", {in, a0, a1, a2}, "recfilter_coli");
+    }
+
+    if (0) {
+        ImageParam in(Float(32), 2, "input");
+        Param<float> alpha;
+        Param<float> beta;
+
+        //Image<float> in(2124, 3540);
+        //float alpha = 0.3;
+        //float beta = 0.4;
+
+        Func heat2d("heat2d");
+        Var x("x"), y("y");
+
+        RDom r(1, in.width()-2, 1, in.height()-2);
+        heat2d(x, y) = 0.0f;
+        heat2d(r.x, r.y) = alpha * in(r.x, r.y) +
+                       beta * (in(r.x+1, r.y) + in(r.x-1, r.y) + in(r.x, r.y+1) + in(r.x, r.y-1));
+
+        heat2d.parallel(y);//.vectorize(x, 8);
+        heat2d.parallel(r.y);//.vectorize(r.x, 8);
+
+        //heat2d.realize(2124, 3540);
+
+        heat2d.compile_to_coli("heat2d_coli.cpp", {in, alpha, beta}, "heat2d_coli");
+    }
+
+    if (1) {
+        /*ImageParam in(Float(32), 2, "input");
+        Param<float> alpha;
+        Param<float> beta;*/
+
+        Image<float> in(2124, 3540);
+        float alpha = 0.3;
+        float beta = 0.4;
+
+        Func divergence2d("divergence2d");
+        Var x("x"), y("y");
+
+        RDom r(1, in.width()-2, 1, in.height()-2);
+        divergence2d(x, y) = 0.0f;
+        divergence2d(r.x, r.y) = alpha * (in(r.x+1, r.y) + in(r.x-1, r.y)) +
+                                 beta  * (in(r.x, r.y+1) + in(r.x, r.y-1));
+
+        divergence2d.parallel(y);//.vectorize(x, 8);
+        divergence2d.update().parallel(r.y);//.vectorize(r.x, 8);
+
+        divergence2d.realize(2124, 3540);
+        //divergence2d.compile_to_coli("divergence2d_coli.cpp", {in, alpha, beta}, "divergence2d_coli");
     }
 
     printf("Success!\n");
