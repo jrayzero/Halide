@@ -617,11 +617,11 @@ public:
                              const std::string &fn_name = "",
                              const Target &target = get_target_from_environment());
 
-    /** Statically compile this function to C++ COLi source code. */
-    EXPORT void compile_to_coli(const std::string &filename,
-                                const std::vector<Argument> &,
-                                const std::string &fn_name = "",
-                                const Target &target = get_target_from_environment());
+    /** Statically compile this function to C++ Tiramisu source code. */
+    EXPORT void compile_to_tiramisu(const std::string &filename,
+                                    const std::vector<Argument> &,
+                                    const std::string &fn_name = "",
+                                    const Target &target = get_target_from_environment());
 
     /** Write out an internal representation of lowered code. Useful
      * for analyzing and debugging scheduling. Can emit html or plain

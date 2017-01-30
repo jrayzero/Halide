@@ -10,7 +10,7 @@
 #include "Lower.h"
 #include "Outputs.h"
 #include "PrintLoopNest.h"
-#include "CodeGen_Coli.h"
+#include "CodeGen_Tiramisu.h"
 
 using namespace Halide::Internal;
 
@@ -237,12 +237,12 @@ void Pipeline::compile_to_c(const string &filename,
     m.compile(Outputs().c_source(output_name(filename, m, ".c")));
 }
 
-void Pipeline::compile_to_coli(const string &filename,
+void Pipeline::compile_to_tiramisu(const string &filename,
                                const vector<Argument> &args,
                                const string &fn_name,
                                const Target &target) {
 
-    debug(0) << "Compile to pipeline " << filename << " to COLi " << fn_name << "\n";
+    debug(0) << "Compile to pipeline " << filename << " to Tiramisu " << fn_name << "\n";
 
     user_assert(defined()) << "Can't compile undefined Pipeline\n";
     string new_fn_name(fn_name);
@@ -335,12 +335,12 @@ void Pipeline::compile_to_coli(const string &filename,
 
 
     std::ostringstream stream;
-    Internal::print_to_coli(body, stream, fn_name, contents->outputs,
+    Internal::print_to_tiramisu(body, stream, fn_name, contents->outputs,
                             output_buffer_extents, output_buffer_types,
                             inputs, input_buffer_extents, input_buffer_types,
                             input_params, input_param_types,
                             non_inlined_order, env);
-    debug(0) << "Generated COLi:\n" << stream.str() << "\n";
+    debug(0) << "Generated tiramisu:\n" << stream.str() << "\n";
 
     std::ofstream file(filename);
     file << stream.str();

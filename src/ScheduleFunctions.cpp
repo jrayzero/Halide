@@ -89,7 +89,7 @@ Stmt build_provide_loop_nest_helper(string func_name,
                                     const vector<Expr> &predicates,
                                     const Schedule &s,
                                     bool is_update,
-                                    bool compile_to_coli) {
+                                    bool compile_to_tiramisu) {
 
 
     // We'll build it from inside out, starting from a store node,
@@ -121,7 +121,7 @@ Stmt build_provide_loop_nest_helper(string func_name,
     vector<Split> splits = s.splits();
 
     // Define the function args in terms of the loop variables using the splits
-    if (!compile_to_coli) {
+    if (!compile_to_tiramisu) {
         for (const Split &split : splits) {
             Expr outer = Variable::make(Int(32), prefix + split.outer);
             Expr outer_max = Variable::make(Int(32), prefix + split.outer + ".loop_max");
@@ -342,7 +342,7 @@ Stmt build_provide_loop_nest_helper(string func_name,
     // Define the bounds on the split dimensions using the bounds
     // on the function args. If it is a purify, we should use the bounds
     // from the dims instead.
-    if (!compile_to_coli) {
+    if (!compile_to_tiramisu) {
         for (size_t i = splits.size(); i > 0; i--) {
             const Split &split = splits[i-1];
             Expr old_var_extent = Variable::make(Int(32), prefix + split.old_var + ".loop_extent");
@@ -414,7 +414,7 @@ Stmt build_provide_loop_nest(string func_name,
                              const vector<string> &dims,
                              const Definition &def,
                              bool is_update,
-                             bool compile_to_coli) {
+                             bool compile_to_tiramisu) {
 
     internal_assert(!is_update == def.is_init());
 
@@ -438,7 +438,7 @@ Stmt build_provide_loop_nest(string func_name,
 
     // Default schedule/values if there is no specialization
     Stmt stmt = build_provide_loop_nest_helper(
-        func_name, prefix, dims, site, values, def.split_predicate(), def.schedule(), is_update, compile_to_coli);
+        func_name, prefix, dims, site, values, def.split_predicate(), def.schedule(), is_update, compile_to_tiramisu);
 
     // Make any specialized copies
     const vector<Specialization> &specializations = def.specializations();
@@ -447,7 +447,7 @@ Stmt build_provide_loop_nest(string func_name,
         const Definition &s_def = specializations[i-1].definition;
 
         Stmt then_case =
-            build_provide_loop_nest(func_name, prefix, dims, s_def, is_update, compile_to_coli);
+            build_provide_loop_nest(func_name, prefix, dims, s_def, is_update, compile_to_tiramisu);
 
         stmt = IfThenElse::make(c, then_case, stmt);
     }
@@ -461,7 +461,7 @@ Stmt build_provide_loop_nest(string func_name,
 // which it should be realized. It will compute at least those
 // bounds (depending on splits, it may compute more). This loop
 // won't do any allocation.
-Stmt build_produce(Function f, const Target &target, bool compile_to_coli) {
+Stmt build_produce(Function f, const Target &target, bool compile_to_tiramisu) {
 
     if (f.has_extern_definition()) {
         // Call the external function
@@ -632,12 +632,12 @@ Stmt build_produce(Function f, const Target &target, bool compile_to_coli) {
 
         string prefix = f.name() + ".s0.";
         vector<string> dims = f.args();
-        return build_provide_loop_nest(f.name(), prefix, dims, f.definition(), false, compile_to_coli);
+        return build_provide_loop_nest(f.name(), prefix, dims, f.definition(), false, compile_to_tiramisu);
     }
 }
 
 // Build the loop nests that update a function (assuming it's a reduction).
-vector<Stmt> build_update(Function f, bool compile_to_coli) {
+vector<Stmt> build_update(Function f, bool compile_to_tiramisu) {
 
     vector<Stmt> updates;
 
@@ -647,16 +647,16 @@ vector<Stmt> build_update(Function f, bool compile_to_coli) {
         string prefix = f.name() + ".s" + std::to_string(i+1) + ".";
 
         vector<string> dims = f.args();
-        Stmt loop = build_provide_loop_nest(f.name(), prefix, dims, def, true, compile_to_coli);
+        Stmt loop = build_provide_loop_nest(f.name(), prefix, dims, def, true, compile_to_tiramisu);
         updates.push_back(loop);
     }
 
     return updates;
 }
 
-pair<Stmt, Stmt> build_production(Function func, const Target &target, bool compile_to_coli) {
-    Stmt produce = build_produce(func, target, compile_to_coli);
-    vector<Stmt> updates = build_update(func, compile_to_coli);
+pair<Stmt, Stmt> build_production(Function func, const Target &target, bool compile_to_tiramisu) {
+    Stmt produce = build_produce(func, target, compile_to_tiramisu);
+    vector<Stmt> updates = build_update(func, compile_to_tiramisu);
 
     // Combine the update steps
     Stmt merged_updates = Block::make(updates);
@@ -737,19 +737,19 @@ public:
     const Function &func;
     bool is_output, found_store_level, found_compute_level;
     const Target &target;
-    const bool compile_to_coli;
+    const bool compile_to_tiramisu;
 
-    InjectRealization(const Function &f, bool o, const Target &t, bool compile_to_coli) :
+    InjectRealization(const Function &f, bool o, const Target &t, bool compile_to_tiramisu) :
         func(f), is_output(o),
         found_store_level(false), found_compute_level(false),
-        target(t), compile_to_coli(compile_to_coli) {}
+        target(t), compile_to_tiramisu(compile_to_tiramisu) {}
 
 private:
 
     string producing;
 
     Stmt build_pipeline(Stmt s) {
-        pair<Stmt, Stmt> realization = build_production(func, target, compile_to_coli);
+        pair<Stmt, Stmt> realization = build_production(func, target, compile_to_tiramisu);
 
         Stmt producer;
         if (realization.first.defined() && realization.second.defined()) {
@@ -1248,7 +1248,7 @@ Stmt schedule_functions(const vector<Function> &outputs,
                         const vector<string> &order,
                         const map<string, Function> &env,
                         const Target &target,
-                        bool compile_to_coli,
+                        bool compile_to_tiramisu,
                         bool &any_memoized) {
 
     string root_var = LoopLevel::root().to_string();
@@ -1272,7 +1272,7 @@ Stmt schedule_functions(const vector<Function> &outputs,
             s = inline_function(s, f);
         } else {
             debug(1) << "Injecting realization of " << order[i-1] << '\n';
-            InjectRealization injector(f, is_output, target, compile_to_coli);
+            InjectRealization injector(f, is_output, target, compile_to_tiramisu);
             s = injector.mutate(s);
             internal_assert(injector.found_store_level && injector.found_compute_level);
         }

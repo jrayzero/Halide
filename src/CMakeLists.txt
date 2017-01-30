@@ -222,7 +222,6 @@ set(HEADER_FILES
   Closure.h
   CodeGen_ARM.h
   CodeGen_C.h
-  CodeGen_Coli.h
   CodeGen_GPU_Dev.h
   CodeGen_GPU_Host.h
   CodeGen_Hexagon.h
@@ -237,6 +236,7 @@ set(HEADER_FILES
   CodeGen_PTX_Dev.h
   CodeGen_Posix.h
   CodeGen_Renderscript_Dev.h
+  CodeGen_Tiramisu.h
   CodeGen_X86.h
   ConciseCasts.h
   CPlusPlusMangle.h
@@ -379,7 +379,6 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   Closure.cpp
   CodeGen_ARM.cpp
   CodeGen_C.cpp
-  CodeGen_Coli.cpp
   CodeGen_GPU_Dev.cpp
   CodeGen_GPU_Host.cpp
   CodeGen_Hexagon.cpp
@@ -395,6 +394,7 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   CodeGen_PTX_Dev.cpp
   CodeGen_Posix.cpp
   CodeGen_Renderscript_Dev.cpp
+  CodeGen_Tiramisu.cpp
   CodeGen_X86.cpp
   CPlusPlusMangle.cpp
   CSE.cpp

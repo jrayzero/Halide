@@ -271,7 +271,6 @@ SOURCE_FILES = \
   Closure.cpp \
   CodeGen_ARM.cpp \
   CodeGen_C.cpp \
-  CodeGen_Coli.cpp \
   CodeGen_GPU_Dev.cpp \
   CodeGen_GPU_Host.cpp \
   CodeGen_Hexagon.cpp \
@@ -287,6 +286,7 @@ SOURCE_FILES = \
   CodeGen_PowerPC.cpp \
   CodeGen_PTX_Dev.cpp \
   CodeGen_Renderscript_Dev.cpp \
+  CodeGen_Tiramisu.cpp \
   CodeGen_X86.cpp \
   CPlusPlusMangle.cpp \
   CSE.cpp \
@@ -400,7 +400,6 @@ HEADER_FILES = \
   Closure.h \
   CodeGen_ARM.h \
   CodeGen_C.h \
-  CodeGen_Coli.h \
   CodeGen_GPU_Dev.h \
   CodeGen_GPU_Host.h \
   CodeGen_LLVM.h \
@@ -414,6 +413,7 @@ HEADER_FILES = \
   CodeGen_PowerPC.h \
   CodeGen_PTX_Dev.h \
   CodeGen_Renderscript_Dev.h \
+  CodeGen_Tiramisu.h \
   CodeGen_X86.h \
   ConciseCasts.h \
   CPlusPlusMangle.h \

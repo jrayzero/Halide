@@ -22,7 +22,7 @@ EXPORT Stmt lower(std::vector<Function> outputs, const std::string &pipeline_nam
                   const Target &t, std::vector<std::string> &func_order,
                   std::map<std::string, Function> &env,
                   const std::vector<IRMutator *> &custom_passes = std::vector<IRMutator *>(),
-                  bool compile_to_coli = false);
+                  bool compile_to_tiramisu = false);
 
 void lower_test();
 

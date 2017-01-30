@@ -146,8 +146,8 @@ public:
                              const std::string &fn_name,
                              const Target &target = get_target_from_environment());
 
-    /** Statically compile a pipeline to COLi source code. */
-    EXPORT void compile_to_coli(const std::string &filename,
+    /** Statically compile a pipeline to Tiramisu source code. */
+    EXPORT void compile_to_tiramisu(const std::string &filename,
                                 const std::vector<Argument> &,
                                 const std::string &fn_name,
                                 const Target &target = get_target_from_environment());

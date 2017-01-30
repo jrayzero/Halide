@@ -68,7 +68,7 @@ using std::map;
 Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &t,
            vector<string> &order, map<string, Function> &env,
            const vector<IRMutator *> &custom_passes,
-           bool compile_to_coli) {
+           bool compile_to_tiramisu) {
 
     // Compute an environment
     env.clear();
@@ -94,10 +94,10 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     bool any_memoized = false;
 
     debug(1) << "Creating initial loop nests...\n";
-    Stmt s = schedule_functions(outputs, order, env, t, compile_to_coli, any_memoized);
+    Stmt s = schedule_functions(outputs, order, env, t, compile_to_tiramisu, any_memoized);
     debug(2) << "Lowering after creating initial loop nests:\n" << s << '\n';
 
-    if (!compile_to_coli) {
+    if (!compile_to_tiramisu) {
         if (any_memoized) {
             debug(1) << "Injecting memoization...\n";
             s = inject_memoization(s, env, pipeline_name, outputs);
@@ -114,7 +114,7 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
         s = inject_tracing(s, pipeline_name, env, outputs);
         debug(2) << "Lowering after injecting tracing:\n" << s << '\n';
 
-        if (!compile_to_coli) {
+        if (!compile_to_tiramisu) {
             debug(1) << "Adding checks for parameters\n";
             s = add_parameter_checks(s, t);
             debug(2) << "Lowering after injecting parameter checks:\n" << s << '\n';
@@ -126,7 +126,7 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     debug(1) << "Computing bounds of each function's value\n";
     FuncValueBounds func_bounds = compute_function_value_bounds(order, env);
 
-    if (!compile_to_coli) {
+    if (!compile_to_tiramisu) {
         // The checks will be in terms of the symbols defined by bounds
         // inference.
         debug(1) << "Adding checks for images\n";
@@ -141,7 +141,7 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     s = bounds_inference(s, outputs, order, env, func_bounds, t);
     debug(2) << "Lowering after computation bounds inference:\n" << s << '\n';
 
-    if (!compile_to_coli) {
+    if (!compile_to_tiramisu) {
         debug(1) << "Performing sliding window optimization...\n";
         s = sliding_window(s, env);
         debug(2) << "Lowering after sliding window:\n" << s << '\n';
@@ -151,8 +151,8 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     s = allocation_bounds_inference(s, env, func_bounds);
     debug(2) << "Lowering after allocation bounds inference:\n" << s << '\n';
 
-    if (compile_to_coli) {
-        // Storage flattening, etc, should be done by COLi
+    if (compile_to_tiramisu) {
+        // Storage flattening, etc, should be done by Tiramisu
         return s;
     }
 

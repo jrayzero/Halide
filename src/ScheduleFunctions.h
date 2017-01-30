@@ -26,7 +26,7 @@ Stmt schedule_functions(const std::vector<Function> &outputs,
                         const std::vector<std::string> &order,
                         const std::map<std::string, Function> &env,
                         const Target &target,
-                        bool compile_to_coli,
+                        bool compile_to_tiramisu,
                         bool &any_memoized);
 
 
