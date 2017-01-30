@@ -29,7 +29,12 @@ extern "C" void halide_print(void *, const char *msg) {
 
 template<typename T>
 buffer_t make_buffer(int w, int h) {
-    T *mem = (T *)memalign(128, w*h*sizeof(T));
+    T *mem = NULL;
+    // memalign() isn't present on OSX, but posix_memalign is
+    int result = posix_memalign((void **)&mem, 128, w*h*sizeof(T));
+    if (result != 0 || mem == NULL) {
+      exit(-1);
+    }
     buffer_t buf = {0};
     buf.host = (uint8_t *)mem;
     buf.extent[0] = w;

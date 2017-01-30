@@ -35,8 +35,21 @@ public:
                                      const std::string &suffix,
                                      const Target &target,
                                      bool in_front = false) {
-        const char* ext = target.os == Target::Windows && !target.has_feature(Target::MinGW) ? ".obj" : ".o";
-        std::string name = dir_path + "/" + split_string(base_path_name, "/").back() + suffix + ext;
+        const char* ext = (target.os == Target::Windows && !target.has_feature(Target::MinGW)) ? ".obj" : ".o";
+        size_t slash_idx = base_path_name.rfind('/');
+        size_t backslash_idx = base_path_name.rfind('\\');
+        if (slash_idx == std::string::npos) {
+            slash_idx = 0;
+        } else {
+            slash_idx++;
+        }
+        if (backslash_idx == std::string::npos) {
+            backslash_idx = 0;
+        } else {
+            backslash_idx++;
+        }
+        std::string base_name = base_path_name.substr(std::max(slash_idx, backslash_idx));
+        std::string name = dir_path + "/" + base_name + suffix + ext;
         debug(1) << "add_temp_object_file: " << name << "\n";
         if (in_front) {
             dir_files.insert(dir_files.begin(), name);
@@ -82,7 +95,7 @@ struct ModuleContents {
     mutable RefCount ref_count;
     std::string name;
     Target target;
-    std::vector<Internal::BufferPtr> buffers;
+    std::vector<Buffer<>> buffers;
     std::vector<Internal::LoweredFunc> functions;
 };
 
@@ -124,7 +137,7 @@ const std::string &Module::name() const {
     return contents->name;
 }
 
-const std::vector<Internal::BufferPtr> &Module::buffers() const {
+const std::vector<Buffer<>> &Module::buffers() const {
     return contents->buffers;
 }
 
@@ -132,7 +145,7 @@ const std::vector<Internal::LoweredFunc> &Module::functions() const {
     return contents->functions;
 }
 
-void Module::append(const Internal::BufferPtr &buffer) {
+void Module::append(const Buffer<> &buffer) {
     contents->buffers.push_back(buffer);
 }
 
@@ -173,44 +186,33 @@ void Module::compile(const Outputs &output_files) const {
         llvm::LLVMContext context;
         std::unique_ptr<llvm::Module> llvm_module(compile_module_to_llvm_module(*this, context));
 
-        if (!output_files.object_name.empty() || !output_files.static_library_name.empty()) {
-            // We must always generate the object files here, either because they are
-            // needed directly, or as temporary inputs to create a static library.
-            // If they are just temporary inputs, we delete them when we're done,
-            // to minimize the cruft left laying around in build products directory.
-            std::unique_ptr<TemporaryObjectFileDir> temp_dir;
-
-            std::string object_name = output_files.object_name;
-            if (object_name.empty()) {
-                temp_dir = std::unique_ptr<TemporaryObjectFileDir>(new TemporaryObjectFileDir());
-                object_name = temp_dir->add_temp_object_file(output_files.static_library_name, "", target());
-            }
-
+        if (!output_files.object_name.empty()) {
+            debug(1) << "Module.compile(): object_name " << output_files.object_name << "\n";
+            auto out = make_raw_fd_ostream(output_files.object_name);
+            compile_llvm_module_to_object(*llvm_module, *out);
+        }
+        if (!output_files.static_library_name.empty()) {
+            // To simplify the code, we always create a temporary object output
+            // here, even if output_files.object_name was also set: in practice,
+            // no real-world code ever sets both object_name and static_library_name
+            // at the same time, so there is no meaningful performance advantage 
+            // to be had.
+            TemporaryObjectFileDir temp_dir;
             {
-                debug(1) << "Module.compile(): object_name " << object_name << "\n";
+                std::string object_name = temp_dir.add_temp_object_file(output_files.static_library_name, "", target());
+                debug(1) << "Module.compile(): temporary object_name " << object_name << "\n";
                 auto out = make_raw_fd_ostream(object_name);
-                if (target().arch == Target::PNaCl) {
-                    compile_llvm_module_to_llvm_bitcode(*llvm_module, *out);
-                } else {
-                    compile_llvm_module_to_object(*llvm_module, *out);
-                }
-                out->flush();
+                compile_llvm_module_to_object(*llvm_module, *out);
+                out->flush();  // create_static_library() is happier if we do this
             }
-
-            if (!output_files.static_library_name.empty()) {
-                debug(1) << "Module.compile(): static_library_name " << output_files.static_library_name << "\n";
-                Target base_target(target().os, target().arch, target().bits);
-                create_static_library({object_name}, base_target, output_files.static_library_name);
-            }
+            debug(1) << "Module.compile(): static_library_name " << output_files.static_library_name << "\n";
+            Target base_target(target().os, target().arch, target().bits);
+            create_static_library(temp_dir.files(), base_target, output_files.static_library_name);
         }
         if (!output_files.assembly_name.empty()) {
             debug(1) << "Module.compile(): assembly_name " << output_files.assembly_name << "\n";
             auto out = make_raw_fd_ostream(output_files.assembly_name);
-            if (target().arch == Target::PNaCl) {
-                compile_llvm_module_to_llvm_assembly(*llvm_module, *out);
-            } else {
-                compile_llvm_module_to_assembly(*llvm_module, *out);
-            }
+            compile_llvm_module_to_assembly(*llvm_module, *out);
         }
         if (!output_files.bitcode_name.empty()) {
             debug(1) << "Module.compile(): bitcode_name " << output_files.bitcode_name << "\n";
@@ -286,9 +288,6 @@ void compile_multitarget(const std::string &fn_name,
     // JIT makes no sense.
     user_assert(!base_target.has_feature(Target::JIT)) << "JIT not allowed for compile_multitarget.\n";
 
-    // PNaCl might work, but is untested in this path.
-    user_assert(base_target.arch != Target::PNaCl) << "PNaCl not allowed for compile_multitarget.\n";
-
     // If only one target, don't bother with the runtime feature detection wrapping.
     if (targets.size() == 1) {
         debug(1) << "compile_multitarget: single target is " << base_target.to_string() << "\n";
@@ -340,9 +339,8 @@ void compile_multitarget(const std::string &fn_name,
 
         Module module = module_producer(sub_fn_name, sub_fn_target);
         Outputs sub_out = add_suffixes(output_files, suffix);
-        if (sub_out.object_name.empty()) {
-            sub_out.object_name = temp_dir.add_temp_object_file(output_files.static_library_name, suffix, target);
-        }
+        internal_assert(sub_out.object_name.empty());
+        sub_out.object_name = temp_dir.add_temp_object_file(output_files.static_library_name, suffix, target);
         module.compile(sub_out);
 
         static_assert(sizeof(uint64_t)*8 >= Target::FeatureEnd, "Features will not fit in uint64_t");
