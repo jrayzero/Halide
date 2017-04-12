@@ -30,7 +30,7 @@ int count_interleaves(Func f) {
     f.compute_root();
     vector<string> order; // Realization order
     map<string, Function> env;
-    Stmt s = Internal::lower({f.function()}, f.name(), t, order, env);
+    Stmt s = Internal::lower_main_stmt({f.function()}, f.name(), t, order, env);
     CountInterleaves i;
     s.accept(&i);
     return i.result;

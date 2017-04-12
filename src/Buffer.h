@@ -145,6 +145,10 @@ public:
         Buffer(Runtime::Buffer<T>(t, Internal::get_shape_from_start_of_parameter_pack(first, rest...)),
                Internal::get_name_from_end_of_parameter_pack(rest...)) {}
 
+    explicit Buffer(const halide_buffer_t &buf,
+                    const std::string &name = "") :
+        Buffer(Runtime::Buffer<T>(buf), name) {}
+
     explicit Buffer(const buffer_t &buf,
                     const std::string &name = "") :
         Buffer(Runtime::Buffer<T>(buf), name) {}
@@ -155,10 +159,14 @@ public:
         Buffer(Runtime::Buffer<T>(Internal::get_shape_from_start_of_parameter_pack(first, rest...)),
                Internal::get_name_from_end_of_parameter_pack(rest...)) {}
 
-    Buffer(Type t,
-           const std::vector<int> &sizes,
-           const std::string &name = "") :
+    explicit Buffer(Type t,
+                    const std::vector<int> &sizes,
+                    const std::string &name = "") :
         Buffer(Runtime::Buffer<T>(t, sizes), name) {}
+
+    explicit Buffer(const std::vector<int> &sizes,
+                    const std::string &name = "") :
+        Buffer(Runtime::Buffer<T>(sizes), name) {}
 
     template<typename Array, size_t N>
     explicit Buffer(Array (&vals)[N],
@@ -289,24 +297,20 @@ public:
     }
     // @}
 
-private:
-    // Helpers for decltypes used below
-    static const Runtime::Buffer<T> &dummy_const_runtime_buffer();
-    static Runtime::Buffer<T> &dummy_runtime_buffer();
 public:
 
     // We forward numerous methods from the underlying Buffer
 #define HALIDE_BUFFER_FORWARD_CONST(method)                             \
     template<typename ...Args>                                          \
     auto method(Args&&... args) const ->                                \
-        decltype(dummy_const_runtime_buffer().method(std::forward<Args>(args)...)) { \
+        decltype(std::declval<const Runtime::Buffer<T>>().method(std::forward<Args>(args)...)) { \
         return get()->method(std::forward<Args>(args)...);              \
     }
 
 #define HALIDE_BUFFER_FORWARD(method)                                   \
     template<typename ...Args>                                          \
     auto method(Args&&... args) ->                                      \
-        decltype(dummy_runtime_buffer().method(std::forward<Args>(args)...)) { \
+        decltype(std::declval<Runtime::Buffer<T>>().method(std::forward<Args>(args)...)) { \
         return get()->method(std::forward<Args>(args)...);              \
     }
 
@@ -335,6 +339,7 @@ public:
     HALIDE_BUFFER_FORWARD_CONST(contains)
     HALIDE_BUFFER_FORWARD(crop)
     HALIDE_BUFFER_FORWARD(slice)
+    HALIDE_BUFFER_FORWARD_CONST(sliced)
     HALIDE_BUFFER_FORWARD(embed)
     HALIDE_BUFFER_FORWARD(set_min)
     HALIDE_BUFFER_FORWARD(translate)
@@ -370,10 +375,6 @@ public:
 
     template<typename T2>
     static bool can_convert_from(const Buffer<T2> &other) {
-        // TODO: This effectively disables dimension checking inside the
-        // runtime version of can_convert_from. Per conversation with
-        // Andrew, we're going with this for now and will revisit for arbitrary
-        // dimensionality buffer_t.
         return Halide::Runtime::Buffer<T>::can_convert_from(*other.get());
     }
 
@@ -392,33 +393,33 @@ public:
 
     template<typename ...Args>
     auto operator()(int first, Args&&... args) ->
-        decltype(dummy_runtime_buffer()(first, std::forward<Args>(args)...)) {
+        decltype(std::declval<Runtime::Buffer<T>>()(first, std::forward<Args>(args)...)) {
         return (*get())(first, std::forward<Args>(args)...);
     }
 
     template<typename ...Args>
     auto operator()(int first, Args&&... args) const ->
-        decltype(dummy_const_runtime_buffer()(first, std::forward<Args>(args)...)) {
+        decltype(std::declval<const Runtime::Buffer<T>>()(first, std::forward<Args>(args)...)) {
         return (*get())(first, std::forward<Args>(args)...);
     }
 
     auto operator()(const int *pos) ->
-        decltype(dummy_runtime_buffer()(pos)) {
+        decltype(std::declval<Runtime::Buffer<T>>()(pos)) {
         return (*get())(pos);
     }
 
     auto operator()(const int *pos) const ->
-        decltype(dummy_const_runtime_buffer()(pos)) {
+        decltype(std::declval<const Runtime::Buffer<T>>()(pos)) {
         return (*get())(pos);
     }
 
     auto operator()() ->
-        decltype(dummy_runtime_buffer()()) {
+        decltype(std::declval<Runtime::Buffer<T>>()()) {
         return (*get())();
     }
 
     auto operator()() const ->
-        decltype(dummy_const_runtime_buffer()()) {
+        decltype(std::declval<const Runtime::Buffer<T>>()()) {
         return (*get())();
     }
     // @}

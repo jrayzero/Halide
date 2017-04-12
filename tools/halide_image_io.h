@@ -147,6 +147,7 @@ struct PngRowPointers {
 template<typename ImageType, Internal::CheckFunc check = Internal::CheckReturn>
 bool load_png(const std::string &filename, ImageType *im) {
 #ifdef HALIDE_NO_PNG
+    check(false, "png not supported in this build\n");
     return false;
 #else // HALIDE_NO_PNG
     png_byte header[8];
@@ -240,6 +241,7 @@ bool load_png(const std::string &filename, ImageType *im) {
 template<typename ImageType, Internal::CheckFunc check = Internal::CheckReturn>
 bool save_png(ImageType &im, const std::string &filename) {
 #ifdef HALIDE_NO_PNG
+    check(false, "png not supported in this build\n");
     return false;
 #else // HALIDE_NO_PNG
     png_structp png_ptr;
@@ -287,9 +289,11 @@ bool save_png(ImageType &im, const std::string &filename) {
 
     Internal::PngRowPointers row_pointers(im.height(), png_get_rowbytes(png_ptr, info_ptr));
 
-    // im.copyToHost(); // in case the image is on the gpu
-
+    // We don't require that the image type provided has any
+    // particular way to get at the strides, so take differences of
+    // addresses of pixels to compute them.
     int c_stride = (im.channels() == 1) ? 0 : ((&im(0, 0, 1)) - (&im(0, 0, 0)));
+    int x_stride = (int)((&im(1, 0, 0)) - (&im(0, 0, 0)));
     typename ImageType::ElemType *srcPtr = (typename ImageType::ElemType*)im.data();
 
     for (int y = 0; y < im.height(); y++) {
@@ -303,7 +307,7 @@ bool save_png(ImageType &im, const std::string &filename) {
                     *dstPtr++ = out >> 8;
                     *dstPtr++ = out & 0xff;
                 }
-                srcPtr++;
+                srcPtr += x_stride;
             }
         } else if (bit_depth == 8) {
             // convert to uint8_t
@@ -313,7 +317,7 @@ bool save_png(ImageType &im, const std::string &filename) {
                     Internal::convert(srcPtr[c*c_stride], out);
                     *dstPtr++ = out;
                 }
-                srcPtr++;
+                srcPtr += x_stride;
             }
         } else {
             if (!check(bit_depth == 8 || bit_depth == 16, "We only support saving 8- and 16-bit images.")) return false;
@@ -514,6 +518,8 @@ bool load_ppm(const std::string &filename, ImageType *im) {
 // "im" is not const-ref because copy_to_host() is not const.
 template<typename ImageType, Internal::CheckFunc check = Internal::CheckReturn>
 bool save_ppm(ImageType &im, const std::string &filename) {
+    if (!check(im.channels() == 3, "save_ppm() requires a 3-channel image.\n")) { return false; }
+
     im.copy_to_host();
 
     unsigned int bit_depth = sizeof(typename ImageType::ElemType) == 1 ? 8: 16;
@@ -587,6 +593,7 @@ bool save_ppm(ImageType &im, const std::string &filename) {
 template<typename ImageType, Internal::CheckFunc check = Internal::CheckReturn>
 bool save_jpg(ImageType &im, const std::string &filename) {
 #ifdef HALIDE_NO_JPEG
+    check(false, "jpg not supported in this build\n");
     return false;
 #else
     im.copy_to_host();
@@ -663,6 +670,7 @@ bool save_jpg(ImageType &im, const std::string &filename) {
 template<typename ImageType, Internal::CheckFunc check = Internal::CheckReturn>
 bool load_jpg(const std::string &filename, ImageType *im) {
 #ifdef HALIDE_NO_JPEG
+    check(false, "jpg not supported in this build\n");
     return false;
 #else
     struct jpeg_decompress_struct cinfo;

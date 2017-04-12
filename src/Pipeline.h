@@ -9,6 +9,7 @@
 
 #include <vector>
 
+#include "ExternalCode.h"
 #include "IntrusivePtr.h"
 #include "JITModule.h"
 #include "Module.h"
@@ -194,7 +195,7 @@ public:
     EXPORT Module compile_to_module(const std::vector<Argument> &args,
                                     const std::string &fn_name,
                                     const Target &target = get_target_from_environment(),
-                                    const Internal::LoweredFunc::LinkageType linkage_type = Internal::LoweredFunc::External);
+                                    const Internal::LoweredFunc::LinkageType linkage_type = Internal::LoweredFunc::ExternalPlusMetadata);
 
    /** Eagerly jit compile the function to machine code. This
      * normally happens on the first call to realize. If you're

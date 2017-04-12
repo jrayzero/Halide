@@ -60,6 +60,7 @@ set(RUNTIME_CPP
   msan
   msan_stubs
   noos
+  old_buffer_t
   opencl
   opengl
   openglcompute
@@ -76,6 +77,7 @@ set(RUNTIME_CPP
   posix_tempfile
   posix_threads
   powerpc_cpu_features
+  prefetch
   profiler
   profiler_inlined
   qurt_allocator
@@ -111,6 +113,7 @@ set (RUNTIME_LL
   x86_avx
   x86_sse41
 )
+
 set (RUNTIME_BC
   compute_20
   compute_30
@@ -181,11 +184,11 @@ function(add_runtime_modules TARGET_RUNTIME_FILES TARGET_RUNTIME_DIR)
 
       add_custom_command(OUTPUT "${INITMOD_D}"
                          DEPENDS "${BC_D}"
-                         COMMAND binary2cpp "initmod_${i}_${j}_debug" < "${BC_D}" > "${INITMOD_D}"
+                         COMMAND binary2cpp "halide_internal_initmod_${i}_${j}_debug" < "${BC_D}" > "${INITMOD_D}"
                          COMMENT "${BC_D} -> ${INITMOD_D}")
       add_custom_command(OUTPUT "${INITMOD}"
                          DEPENDS "${BC}"
-                         COMMAND binary2cpp "initmod_${i}_${j}" < "${BC}" > "${INITMOD}"
+                         COMMAND binary2cpp "halide_internal_initmod_${i}_${j}" < "${BC}" > "${INITMOD}"
                          COMMENT "${BC} -> ${INITMOD}")
       list(APPEND INITIAL_MODULES ${INITMOD})
       list(APPEND INITIAL_MODULES ${INITMOD_D})
@@ -208,19 +211,45 @@ foreach (i ${RUNTIME_LL} )
                      COMMENT "${LL} -> ${BC}")
   add_custom_command(OUTPUT "${INITMOD}"
                      DEPENDS "${BC}"
-                     COMMAND binary2cpp "initmod_${i}_ll" < "${BC}" > "${INITMOD}"
+                     COMMAND binary2cpp "halide_internal_initmod_${i}_ll" < "${BC}" > "${INITMOD}"
                      COMMENT "${BC} -> ${INITMOD}")
   list(APPEND INITIAL_MODULES "${INITMOD}")
 endforeach()
 foreach (i ${RUNTIME_BC} )
   set(INITMOD "${INITMOD_PREFIX}ptx_${i}.cpp")
   add_custom_command(OUTPUT "${INITMOD}"
-                     COMMAND binary2cpp "initmod_ptx_${i}_ll" < "${NATIVE_RUNTIME_DIR}nvidia_libdevice_bitcode/libdevice.${i}.10.bc" > "${INITMOD}"
+                     COMMAND binary2cpp "halide_internal_initmod_ptx_${i}_ll" < "${NATIVE_RUNTIME_DIR}nvidia_libdevice_bitcode/libdevice.${i}.10.bc" > "${INITMOD}"
                      COMMENT "Building initial module ptx_${i}..."
                      VERBATIM)
   list(APPEND INITIAL_MODULES "${INITMOD}")
 endforeach()
 
+add_custom_command(OUTPUT "${INITMOD_PREFIX}inlined_c.cpp"
+  DEPENDS "${NATIVE_RUNTIME_DIR}buffer_t.cpp"
+  COMMAND binary2cpp "halide_internal_initmod_inlined_c" < "${NATIVE_RUNTIME_DIR}buffer_t.cpp" > "${INITMOD_PREFIX}inlined_c.cpp"
+  COMMENT "buffer_t.cpp -> ${INITMOD_PREFIX}inlined_c.cpp")
+list(APPEND INITIAL_MODULES "${INITMOD_PREFIX}inlined_c.cpp")
+
+set(RUNTIME_HEADER_FILES
+  HalideRuntime.h
+  HalideRuntimeCuda.h
+  HalideRuntimeHexagonHost.h
+  HalideRuntimeOpenCL.h
+  HalideRuntimeMetal.h
+  HalideRuntimeOpenGL.h
+  HalideRuntimeOpenGLCompute.h
+  HalideRuntimeQurt.h
+  HalideBuffer.h
+)
+
+foreach (i ${RUNTIME_HEADER_FILES})
+  string(REPLACE "." "_" SYM_NAME "${i}")
+  add_custom_command(OUTPUT "${INITMOD_PREFIX}${SYM_NAME}.cpp"
+    DEPENDS "${NATIVE_RUNTIME_DIR}${i}"
+    COMMAND binary2cpp "halide_internal_runtime_header_${SYM_NAME}" < "${NATIVE_RUNTIME_DIR}${i}" > "${INITMOD_PREFIX}${SYM_NAME}.cpp"
+    COMMENT "${i} -> ${INITMOD_PREFIX}${SYM_NAME}.cpp")
+  list(APPEND INITIAL_MODULES "${INITMOD_PREFIX}${SYM_NAME}.cpp")
+endforeach()
 
 set(HEADER_FILES
   AddImageChecks.h
@@ -255,6 +284,7 @@ set(HEADER_FILES
   ConciseCasts.h
   CPlusPlusMangle.h
   Debug.h
+  DebugArguments.h
   DebugToFile.h
   DeepCopy.h
   Definition.h
@@ -262,6 +292,7 @@ set(HEADER_FILES
   DeviceArgument.h
   DeviceInterface.h
   EarlyFree.h
+  Elf.h
   EliminateBoolVectors.h
   Error.h
   Expr.h
@@ -285,6 +316,7 @@ set(HEADER_FILES
   IRPrinter.h
   IRVisitor.h
   ImageParam.h
+  InferArguments.h
   Interval.h
   InjectHostDevBufferCopies.h
   InjectImageIntrinsics.h
@@ -340,18 +372,21 @@ set(HEADER_FILES
   StorageFolding.h
   Substitute.h
   Target.h
+  ThreadPool.h
   Tracing.h
   TrimNoOps.h
   Tuple.h
   Type.h
   UnifyDuplicateLets.h
   UniquifyVariableNames.h
+  UnpackBuffers.h
   UnrollLoops.h
   Util.h
   Var.h
   VaryingAttributes.h
   VectorizeLoops.h
   WrapCalls.h
+  WrapExternStages.h
   runtime/HalideRuntime.h
   runtime/HalideBuffer.h
 )
@@ -363,16 +398,9 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/include/Halide.h"
   WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
   DEPENDS build_halide_h ${HEADER_FILES})
 
-configure_file(runtime/HalideRuntime.h "${CMAKE_BINARY_DIR}/include" COPYONLY)
-configure_file(runtime/HalideRuntimeCuda.h "${CMAKE_BINARY_DIR}/include" COPYONLY)
-configure_file(runtime/HalideRuntimeHexagonHost.h "${CMAKE_BINARY_DIR}/include" COPYONLY)
-configure_file(runtime/HalideRuntimeOpenCL.h "${CMAKE_BINARY_DIR}/include" COPYONLY)
-configure_file(runtime/HalideRuntimeMetal.h "${CMAKE_BINARY_DIR}/include" COPYONLY)
-configure_file(runtime/HalideRuntimeOpenGL.h "${CMAKE_BINARY_DIR}/include" COPYONLY)
-configure_file(runtime/HalideRuntimeOpenGLCompute.h "${CMAKE_BINARY_DIR}/include" COPYONLY)
-configure_file(runtime/HalideRuntimeQurt.h "${CMAKE_BINARY_DIR}/include" COPYONLY)
-configure_file(runtime/HalideBuffer.h "${CMAKE_BINARY_DIR}/include" COPYONLY)
-
+foreach (i ${RUNTIME_HEADER_FILES})
+  configure_file(runtime/${i} "${CMAKE_BINARY_DIR}/include" COPYONLY)
+endforeach()
 
 add_library(Halide ${HALIDE_LIBRARY_TYPE}
   AddImageChecks.cpp
@@ -407,7 +435,7 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   CSE.cpp
   CanonicalizeGPUVars.cpp
   Debug.cpp
-  Debug.cpp
+  DebugArguments.cpp
   DebugToFile.cpp
   DeepCopy.cpp
   Definition.cpp
@@ -415,6 +443,7 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   DeviceArgument.cpp
   DeviceInterface.cpp
   EarlyFree.cpp
+  Elf.cpp
   EliminateBoolVectors.cpp
   Error.cpp
   FastIntegerDivide.cpp
@@ -435,6 +464,7 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   IRPrinter.cpp
   IRVisitor.cpp
   ImageParam.cpp
+  InferArguments.cpp
   Interval.cpp
   InjectHostDevBufferCopies.cpp
   InjectImageIntrinsics.cpp
@@ -491,12 +521,14 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   Type.cpp
   UnifyDuplicateLets.cpp
   UniquifyVariableNames.cpp
+  UnpackBuffers.cpp
   UnrollLoops.cpp
   Util.cpp
   Var.cpp
   VaryingAttributes.cpp
   VectorizeLoops.cpp
   WrapCalls.cpp
+  WrapExternStages.cpp
   "${CMAKE_BINARY_DIR}/include/Halide.h"
   ${HEADER_FILES}
   ${INITIAL_MODULES}
