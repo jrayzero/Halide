@@ -853,7 +853,7 @@ void CodeGen_Tiramisu::visit(const Not *op) {
 
 void CodeGen_Tiramisu::visit(const Select *op) {
     ostringstream ss;
-    ss << "tiramisu::expr(tiramisu::o_cond, ";
+    ss << "tiramisu::expr(tiramisu::o_select, ";
     ss << print(op->condition);
     ss << ", ";
     ss << print(op->true_value);
