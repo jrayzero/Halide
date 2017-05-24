@@ -90,7 +90,7 @@ private:
     std::string define_constant(const std::string &name, Expr value);
     std::string define_wrapper_let(const std::string &computation_name, const std::string &name, Expr value);
     void generate_schedules();
-    void generate_schedule(const Function &func, int stage, const Schedule &schedule, size_t i);
+    void generate_schedule(const Function &func, int stage, const StageSchedule &schedule, size_t i);
 
     Expr substitute_in_scope(Expr expr) const;
 

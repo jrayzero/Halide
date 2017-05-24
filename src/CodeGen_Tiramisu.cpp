@@ -386,7 +386,7 @@ int get_compute_at_dim_index(const vector<Dim> &dims, const string &var) {
 } // anonymous namespace
 
 void CodeGen_Tiramisu::generate_schedule(const Function &func, int stage,
-                                     const Schedule &schedule, size_t order_index) {
+                                         const StageSchedule &schedule, size_t order_index) {
     string name = print_name(func.name() + ".s" + std::to_string(stage));
 
     const vector<Dim> &dims = schedule.dims();
@@ -528,7 +528,7 @@ int CodeGen_Tiramisu::get_current_stage() const {
 vector<string> CodeGen_Tiramisu::get_stage_dims(const string &name, int stage, bool ignore_rvar) const {
     internal_assert(env.count(name));
     const Function &func = env.find(name)->second;
-    const Schedule &schedule = (stage == 0) ? func.definition().schedule() : func.update(stage-1).schedule();
+    const StageSchedule &schedule = (stage == 0) ? func.definition().schedule() : func.update(stage-1).schedule();
     const vector<Dim> &dims = schedule.dims();
 
     vector<string> dim_str;
@@ -547,7 +547,7 @@ vector<string> CodeGen_Tiramisu::get_stage_dims(const string &name, int stage, b
 vector<string> CodeGen_Tiramisu::get_stage_rvars(const string &name, int stage) const {
     internal_assert(env.count(name));
     const Function &func = env.find(name)->second;
-    const Schedule &schedule = (stage == 0) ? func.definition().schedule() : func.update(stage-1).schedule();
+    const StageSchedule &schedule = (stage == 0) ? func.definition().schedule() : func.update(stage-1).schedule();
     const vector<Dim> &dims = schedule.dims();
 
     vector<string> dim_str;

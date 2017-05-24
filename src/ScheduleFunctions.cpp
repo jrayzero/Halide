@@ -88,10 +88,10 @@ Stmt build_provide_loop_nest_helper(string func_name,
                                     const vector<Expr> &site,
                                     const vector<Expr> &values,
                                     const vector<Expr> &predicates,
-                                    const Schedule &s,
+                                    const FuncSchedule &func_s,
+                                    const StageSchedule &stage_s,
                                     bool is_update,
                                     bool compile_to_tiramisu) {
-
 
     // We'll build it from inside out, starting from a store node,
     // then wrapping it in for loops.
@@ -106,7 +106,7 @@ Stmt build_provide_loop_nest_helper(string func_name,
     map<string, Expr> dim_extent_alignment;
 
     // First hunt through the bounds for them.
-    for (const Bound &i : s.bounds()) {
+    for (const Bound &i : func_s.bounds()) {
         if (i.extent.defined()) {
             dim_extent_alignment[i.var] = i.extent;
         }
@@ -115,11 +115,11 @@ Stmt build_provide_loop_nest_helper(string func_name,
         }
     }
     // Then use any reduction domain.
-    for (const ReductionVariable &i : s.rvars()) {
+    for (const ReductionVariable &i : stage_s.rvars()) {
         dim_extent_alignment[i.var] = i.extent;
     }
 
-    vector<Split> splits = s.splits();
+    vector<Split> splits = stage_s.splits();
 
     // Define the function args in terms of the loop variables using the splits
     if (!compile_to_tiramisu) {
@@ -143,8 +143,8 @@ Stmt build_provide_loop_nest_helper(string func_name,
     vector<Container> nest;
 
     // Put the desired loop nest into the containers vector.
-    for (int i = (int)s.dims().size() - 1; i >= 0; i--) {
-        const Dim &dim = s.dims()[i];
+    for (int i = (int)stage_s.dims().size() - 1; i >= 0; i--) {
+        const Dim &dim = stage_s.dims()[i];
         Container c = {Container::For, i, prefix + dim.var, Expr()};
         nest.push_back(c);
     }
@@ -179,7 +179,7 @@ Stmt build_provide_loop_nest_helper(string func_name,
 
     // Resort the containers vector so that lets are as far outwards
     // as possible. Use reverse insertion sort. Start at the first letstmt.
-    for (int i = (int)s.dims().size(); i < (int)nest.size() - n_predicates; i++) {
+    for (int i = (int)stage_s.dims().size(); i < (int)nest.size() - n_predicates; i++) {
         // Only push up LetStmts.
         internal_assert(nest[i].value.defined());
         internal_assert(nest[i].type == Container::Let);
@@ -233,7 +233,7 @@ Stmt build_provide_loop_nest_helper(string func_name,
             stmt = IfThenElse::make(nest[i].value, stmt, Stmt());
         } else {
             internal_assert(nest[i].type == Container::For);
-            const Dim &dim = s.dims()[nest[i].dim_idx];
+            const Dim &dim = stage_s.dims()[nest[i].dim_idx];
             Expr min = Variable::make(Int(32), nest[i].name + ".loop_min");
             Expr extent = Variable::make(Int(32), nest[i].name + ".loop_extent");
             stmt = For::make(nest[i].name, min, extent, dim.for_type, dim.device_api, stmt);
@@ -276,7 +276,7 @@ Stmt build_provide_loop_nest_helper(string func_name,
 
     // Define the loop mins and extents for the reduction domain (if there is any)
     // in terms of the mins and maxs produced by bounds inference
-    for (const ReductionVariable &rv : s.rvars()) {
+    for (const ReductionVariable &rv : stage_s.rvars()) {
         string p = prefix + rv.var;
         Expr rmin = Variable::make(Int(32), p + ".min");
         Expr rmax = Variable::make(Int(32), p + ".max");
@@ -292,6 +292,7 @@ Stmt build_provide_loop_nest_helper(string func_name,
 Stmt build_provide_loop_nest(string func_name,
                              string prefix,
                              const vector<string> &dims,
+                             const FuncSchedule &f_sched,
                              const Definition &def,
                              bool is_update,
                              bool compile_to_tiramisu) {
@@ -318,7 +319,8 @@ Stmt build_provide_loop_nest(string func_name,
 
     // Default schedule/values if there is no specialization
     Stmt stmt = build_provide_loop_nest_helper(
-        func_name, prefix, dims, site, values, def.split_predicate(), def.schedule(), is_update, compile_to_tiramisu);
+        func_name, prefix, dims, site, values, def.split_predicate(), f_sched,
+        def.schedule(), is_update, compile_to_tiramisu);
 
     // Make any specialized copies
     const vector<Specialization> &specializations = def.specializations();
@@ -328,7 +330,8 @@ Stmt build_provide_loop_nest(string func_name,
         const Definition &s_def = s.definition;
         Stmt then_case;
         if (s.failure_message.empty()) {
-            then_case = build_provide_loop_nest(func_name, prefix, dims, s_def, is_update, compile_to_tiramisu);
+            then_case = build_provide_loop_nest(func_name, prefix, dims, f_sched,
+                                                s_def, is_update, compile_to_tiramisu);
         } else {
             internal_assert(equal(c, const_true()));
             // specialize_fail() should only be possible on the final specialization
@@ -535,7 +538,8 @@ Stmt build_produce(Function f, const Target &target, bool compile_to_tiramisu) {
 
         string prefix = f.name() + ".s0.";
         vector<string> dims = f.args();
-        return build_provide_loop_nest(f.name(), prefix, dims, f.definition(), false, compile_to_tiramisu);
+        return build_provide_loop_nest(f.name(), prefix, dims, f.schedule(),
+                                       f.definition(), false, compile_to_tiramisu);
     }
 }
 
@@ -550,7 +554,8 @@ vector<Stmt> build_update(Function f, bool compile_to_tiramisu) {
         string prefix = f.name() + ".s" + std::to_string(i+1) + ".";
 
         vector<string> dims = f.args();
-        Stmt loop = build_provide_loop_nest(f.name(), prefix, dims, def, true, compile_to_tiramisu);
+        Stmt loop = build_provide_loop_nest(f.name(), prefix, dims, f.schedule(),
+                                            def, true, compile_to_tiramisu);
         updates.push_back(loop);
     }
 
@@ -570,7 +575,7 @@ pair<Stmt, Stmt> build_production(Function func, const Target &target, bool comp
 // injects assertions that check that those bounds are sufficiently
 // large to cover the inferred bounds required.
 Stmt inject_explicit_bounds(Stmt body, Function func) {
-    const Schedule &s = func.schedule();
+    const FuncSchedule &s = func.schedule();
     for (size_t stage = 0; stage <= func.updates().size(); stage++) {
         for (size_t i = 0; i < s.bounds().size(); i++) {
             Bound b = s.bounds()[i];
@@ -1022,7 +1027,7 @@ bool validate_schedule(Function f, Stmt s, const Target &target, bool is_output,
     }
 
     // Emit a warning if only some of the steps have been scheduled.
-    bool any_scheduled = f.schedule().touched();
+    bool any_scheduled = f.definition().schedule().touched();
     for (const Definition &r : f.updates()) {
         any_scheduled = any_scheduled || r.schedule().touched();
     }
@@ -1056,7 +1061,7 @@ bool validate_schedule(Function f, Stmt s, const Target &target, bool is_output,
     }
 
     for (const Definition &def : definitions) {
-        const Schedule &s = def.schedule();
+        const StageSchedule &s = def.schedule();
         for (const Dim &d : s.dims()) {
             if (!target.supports_device_api(d.device_api)) {
                 user_error << "Schedule for Func " << f.name()

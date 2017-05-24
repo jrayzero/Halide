@@ -242,7 +242,7 @@ void Pipeline::compile_to_tiramisu(const string &filename,
     vector<string> non_inlined_order;
     for (const auto &f : order) {
         internal_assert(env.count(f));
-        if (!env.find(f)->second.definition().schedule().compute_level().is_inline()) {
+        if (!env.find(f)->second.schedule().compute_level().is_inline()) {
             non_inlined_order.push_back(f);
         }
     }
