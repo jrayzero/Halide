@@ -19,6 +19,7 @@ using std::map;
 using std::pair;
 
 namespace {
+
 const string headers =
     "#include <isl/set.h>\n"
     "#include <isl/union_map.h>\n"
@@ -75,8 +76,9 @@ string print_name(const string &name) {
             oss << "__";
         } else if (name[i] != '_' && !isalnum(name[i])) {
             oss << "___";
+        } else {
+            oss << name[i];
         }
-        else oss << name[i];
     }
     return oss.str();
 }
@@ -90,6 +92,7 @@ string halide_type_to_tiramisu_type_str(Type type) {
         } else if (type.bits() == 32) {
             return "tiramisu::p_uint32";
         } else {
+            internal_assert(type.bits() == 64);
             return "tiramisu::p_uint64";
         }
     } else if (type.is_int()) {
@@ -100,6 +103,7 @@ string halide_type_to_tiramisu_type_str(Type type) {
         } else if (type.bits() == 32) {
             return "tiramisu::p_int32";
         } else {
+            internal_assert(type.bits() == 64);
             return "tiramisu::p_int64";
         }
     } else if (type.is_float()) {
@@ -113,7 +117,7 @@ string halide_type_to_tiramisu_type_str(Type type) {
     } else if (type.is_bool()) {
         return "tiramisu::p_boolean";
     } else {
-        user_error << "Halide type cannot be translated to Tiramisu type.\n";
+        user_error << "Halide type \"" << type << "\" cannot be translated to Tiramisu type.\n";
     }
     return "tiramisu::p_none";
 }
@@ -127,6 +131,7 @@ string halide_type_to_c_type_str(Type type) {
         } else if (type.bits() == 32) {
             return "uint32_t";
         } else {
+            internal_assert(type.bits() == 64);
             return "uint64_t";
         }
     } else if (type.is_int()) {
@@ -137,6 +142,7 @@ string halide_type_to_c_type_str(Type type) {
         } else if (type.bits() == 32) {
             return "int32_t";
         } else {
+            internal_assert(type.bits() == 64);
             return "int64_t";
         }
     } else if (type.is_float()) {
@@ -150,7 +156,7 @@ string halide_type_to_c_type_str(Type type) {
     } else if (type.is_bool()) {
         return "bool";
     } else {
-        user_error << "Halide type cannot be translated to C type.\n";
+        user_error << "Halide type \"" << type << "\" cannot be translated to C type.\n";
     }
     return "void";
 }
@@ -208,20 +214,21 @@ class NormalizeVariableName : public IRMutator {
         }
     }
 };
-}
+
+} // anonymous namespace
 
 CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
-                           const vector<Function> &outputs,
-                           const vector<vector<int32_t>> &output_buffer_extents,
-                           const vector<Type> &output_buffer_types,
-                           const vector<string> &inputs,
-                           const vector<vector<int32_t>> &input_buffer_extents,
-                           const vector<Type> &input_buffer_types,
-                           const vector<string> &input_params,
-                           const vector<Type> &input_param_types,
-                           const vector<string> &order,
-                           const map<string, Function> &env)
-        : stream(dest), indent(0), func(pipeline_name), order(order), env(env), loop_depth(0),
+                                   const vector<Function> &outputs,
+                                   const vector<vector<int32_t>> &output_buffer_extents,
+                                   const vector<Type> &output_buffer_types,
+                                   const vector<string> &inputs,
+                                   const vector<vector<int32_t>> &input_buffer_extents,
+                                   const vector<Type> &input_buffer_types,
+                                   const vector<string> &input_params,
+                                   const vector<Type> &input_param_types,
+                                   const vector<string> &order,
+                                   const map<string, Function> &env)
+        : stream(dest), indent(0), pipeline(pipeline_name), order(order), env(env), loop_depth(0),
           current_computation("") {
 
     internal_assert(outputs.size() == output_buffer_extents.size());
@@ -241,7 +248,7 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
     stream << do_indent();
     stream << "global::set_default_tiramisu_options();\n\n";
     stream << do_indent();
-    stream << "tiramisu::function " << func << "(\"" << func << "\")" << ";\n";
+    stream << "tiramisu::function " << pipeline << "(\"" << pipeline << "\")" << ";\n";
 
     // Define the input params
     if (!input_params.empty()) {
@@ -255,7 +262,8 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
             string extent_str = print_name(param_name);
             extent_list.insert(extent_str);
             stream << do_indent();
-            // Just assigned it to some random number
+            // Just assigned it to some random value. We need to replace it
+            // manually later to the intended value.
             stream << halide_type_to_c_type_str(type) << " " << extent_str << " = 0;\n";
         }
     }
@@ -282,6 +290,7 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
             stream << "int " << extent_str << " = " << buffer_extents[i] << ";\n";
 
             sizes << "tiramisu::expr(" << extent_str << ")";
+            // TODO(psuriana): Assume "min" always starts from 0 for now
             scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
             //scope.push_back(std::make_pair(extent_str, make_const(Int(32), buffer_extents[i])));
             if (i != 0) {
@@ -295,11 +304,11 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
         stream << "tiramisu::buffer " << buffer_name << "(\"" << buffer_name << "\", "
                << f.args().size() << ", " << sizes.str() << ", "
                << halide_type_to_tiramisu_type_str(type) << ", NULL, tiramisu::a_output, "
-               << "&" << func << ");\n";
+               << "&" << pipeline << ");\n";
         output_buffers.insert(buffer_name);
     }
 
-    // Bind to the input buffers
+    // Declare the input buffers
     stream << "\n";
     stream << do_indent();
     stream << "// Input buffers.\n";
@@ -335,7 +344,7 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
         stream << "tiramisu::buffer " << buffer_name << "(\"" << buffer_name << "\", "
                << buffer_extents.size() << ", " << sizes.str() << ", "
                << halide_type_to_tiramisu_type_str(type) << ", NULL, tiramisu::a_input, "
-               << "&" << func << ");\n";
+               << "&" << pipeline << ");\n";
         input_buffers.insert(buffer_name);
 
         // Bind the input buffer to a computation
@@ -344,7 +353,7 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
         string symbolic_str = get_loop_bound_vars();
         string iter_space_str;
         if (!symbolic_str.empty()) {
-            iter_space_str = get_loop_bound_vars() + "->{" + input_name + dims_str + ": " + get_loop_bounds() + "}";
+            iter_space_str = symbolic_str + "->{" + input_name + dims_str + ": " + get_loop_bounds() + "}";
         } else {
             iter_space_str = "{" + input_name + dims_str + ": " + get_loop_bounds() + "}";
         }
@@ -352,7 +361,7 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
         stream << do_indent();
         stream << "tiramisu::computation " << input_name << "(\"" << iter_space_str << "\", "
                << "expr(), false, " << halide_type_to_tiramisu_type_str(type)
-               << ", &" << func << ");\n";
+               << ", &" << pipeline << ");\n";
 
         // 1-to-1 mapping to buffer
         string access_str = "{" + input_name + dims_str + "->" + "buff_" + input_name + dims_str + "}";
@@ -371,7 +380,7 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
 namespace {
 
 int get_split_fuse_dim_index(const vector<Dim> &dims, const string &var) {
-    // TODO(psuriana): we need to pass the *original* dim list (i.e. the one
+    // TODO(psuriana): we need to pass the "original" dim list (i.e. the one
     // before Halide applies any splits, reordering, etc.)
     return 0;
 }
@@ -476,17 +485,17 @@ CodeGen_Tiramisu::~CodeGen_Tiramisu() {
 
     stream << "\n";
     stream << do_indent();
-    stream << func << ".set_arguments(" << buffers_stream.str() << ");\n";
+    stream << pipeline << ".set_arguments(" << buffers_stream.str() << ");\n";
     stream << do_indent();
-    stream << func << ".gen_time_processor_domain();\n";
+    stream << pipeline << ".gen_time_processor_domain();\n";
     stream << do_indent();
-    stream << func << ".gen_isl_ast();\n";
+    stream << pipeline << ".gen_isl_ast();\n";
     stream << do_indent();
-    stream << func << ".gen_halide_stmt();\n";
+    stream << pipeline << ".gen_halide_stmt();\n";
     stream << do_indent();
-    stream << func << ".dump_halide_stmt();\n";
+    stream << pipeline << ".dump_halide_stmt();\n";
     stream << do_indent();
-    stream << func << ".gen_halide_obj(\"build/generated_fct_" << func << ".o\");\n";
+    stream << pipeline << ".gen_halide_obj(\"build/generated_fct_" << pipeline << ".o\");\n";
 
     stream << "\n";
     stream << do_indent();
@@ -507,7 +516,7 @@ string CodeGen_Tiramisu::do_indent() const {
 }
 
 void CodeGen_Tiramisu::push_loop_dim(const string &name, Expr min, Expr extent,
-                                 const string &func, int stage, const string &var) {
+                                     const string &func, int stage, const string &var) {
     loop_dims.push_back({name, min, extent, func, stage, var});
 }
 
@@ -534,10 +543,8 @@ vector<string> CodeGen_Tiramisu::get_stage_dims(const string &name, int stage, b
     vector<string> dim_str;
     // Ignore __outermost
     for (int i = dims.size()-2; i >= 0; --i) {
-        if (ignore_rvar) {
-            if (dims[i].is_rvar()) {
-                continue;
-            }
+        if (ignore_rvar && dims[i].is_rvar()) {
+            continue;
         }
         dim_str.push_back(print_name(name + ".s" + std::to_string(stage) + "." + dims[i].var));
     }
@@ -560,6 +567,7 @@ vector<string> CodeGen_Tiramisu::get_stage_rvars(const string &name, int stage) 
     return dim_str;
 }
 
+// Return str representation of all symbolic loop bounds
 string CodeGen_Tiramisu::get_loop_bound_vars() const {
     vector<Expr> relevant_exprs;
     for (size_t i = 0; i < loop_dims.size(); ++i) {
@@ -613,12 +621,24 @@ void CodeGen_Tiramisu::visit(const Free *op) {
     user_error << "Conversion of Free to Tiramisu is not supported.\n";
 }
 
+void CodeGen_Tiramisu::visit(const Shuffle *op) {
+    user_error << "Conversion of Shuffle to Tiramisu is not currently supported.\n";
+}
+
+void CodeGen_Tiramisu::visit(const Prefetch *op) {
+    user_error << "Conversion of Prefetch to Tiramisu is not currently supported.\n";
+}
+
+void CodeGen_Tiramisu::visit(const Load *op) {
+    user_error << "Should pass the unflatten version of Load (in the form of Call node) to Tiramisu\n.\n";
+}
+
 void CodeGen_Tiramisu::visit(const Store *op) {
-    user_error << "Should pass the unflatten version of Store to Tiramisu\n.\n";
+    user_error << "Should pass the unflatten version of Store (in the form of Provide node) to Tiramisu\n.\n";
 }
 
 void CodeGen_Tiramisu::visit(const Allocate *op) {
-    user_error << "Should pass the unflatten version of Allocate to Tiramisu\n.\n";
+    user_error << "Should pass the unflatten version of Allocate (in the form of Realize node) to Tiramisu\n.\n";
 }
 
 void CodeGen_Tiramisu::visit(const IntImm *op) {
@@ -630,6 +650,9 @@ void CodeGen_Tiramisu::visit(const IntImm *op) {
         ss << "(int16_t)";
     } else if (op->type.bits() == 32) {
         ss << "(int32_t)";
+    } else {
+        internal_assert(op->type.bits() == 64);
+        ss << "(int64_t)";
     }
     ss << op->value << ")";
     expr = ss.str();
@@ -644,6 +667,9 @@ void CodeGen_Tiramisu::visit(const UIntImm *op) {
         ss << "(uint16_t)";
     } else if (op->type.bits() == 32) {
         ss << "(uint32_t)";
+    } else {
+        internal_assert(op->type.bits() == 64);
+        ss << "(uint32_t)";
     }
     ss << op->value << ")";
     expr = ss.str();
@@ -657,7 +683,7 @@ void CodeGen_Tiramisu::visit(const FloatImm *op) {
         ss << "tiramisu::expr(" << op->value << ")";
     } else {
         // Only support 32- and 64-bit integer
-        user_error << "Conversion of float " << op->type.bits() << "_t to Tiramisu is not currently supported.\n";
+        user_error << "Conversion of " << op->type << " to Tiramisu is not currently supported.\n";
     }
     expr = ss.str();
 }
@@ -672,6 +698,7 @@ void CodeGen_Tiramisu::visit(const Cast *op) {
     expr = ss.str();
 }
 
+//TODO(psuriana) : fix this
 void CodeGen_Tiramisu::visit(const Variable *op) {
     /*user_assert(!op->param.defined() && !op->image.defined())
         << "Can only handle conversion of simple variable to Tiramisu for now.\n";*/
@@ -694,55 +721,30 @@ void CodeGen_Tiramisu::visit(const Variable *op) {
     expr = ss.str();
 }
 
-void CodeGen_Tiramisu::visit(const Add *op) {
+template <typename T>
+void CodeGen_Tiramisu::visit_binary(const T *op, const string &op_str) {
     ostringstream ss;
     ss << '(';
     ss << print(op->a);
-    ss << " + ";
+    ss << " " << op_str << " ";
     ss << print(op->b);
     ss << ')';
     expr = ss.str();
 }
 
-void CodeGen_Tiramisu::visit(const Sub *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << " - ";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const Mul *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << "*";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const Div *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << "/";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const Mod *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << " % ";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
+void CodeGen_Tiramisu::visit(const Add *op) { visit_binary(op, "+"); }
+void CodeGen_Tiramisu::visit(const Sub *op) { visit_binary(op, "-"); }
+void CodeGen_Tiramisu::visit(const Mul *op) { visit_binary(op, "*"); }
+void CodeGen_Tiramisu::visit(const Div *op) { visit_binary(op, "/"); }
+void CodeGen_Tiramisu::visit(const Mod *op) { visit_binary(op, "%"); }
+void CodeGen_Tiramisu::visit(const EQ *op)  { visit_binary(op, "=="); }
+void CodeGen_Tiramisu::visit(const NE *op)  { visit_binary(op, "!="); }
+void CodeGen_Tiramisu::visit(const LT *op)  { visit_binary(op, "<"); }
+void CodeGen_Tiramisu::visit(const LE *op)  { visit_binary(op, "<="); }
+void CodeGen_Tiramisu::visit(const GT *op)  { visit_binary(op, ">"); }
+void CodeGen_Tiramisu::visit(const GE *op)  { visit_binary(op, ">="); }
+void CodeGen_Tiramisu::visit(const And *op) { visit_binary(op, "&&"); }
+void CodeGen_Tiramisu::visit(const Or *op)  { visit_binary(op, "||"); }
 
 void CodeGen_Tiramisu::visit(const Min *op) {
     ostringstream ss;
@@ -761,86 +763,6 @@ void CodeGen_Tiramisu::visit(const Max *op) {
     ss << ", ";
     ss << print(op->b);
     ss << ")";
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const EQ *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << " == ";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const NE *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << " != ";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const LT *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << " < ";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const LE *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << " <= ";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const GT *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << " > ";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const GE *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << " >= ";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const And *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << " && ";
-    ss << print(op->b);
-    ss << ')';
-    expr = ss.str();
-}
-
-void CodeGen_Tiramisu::visit(const Or *op) {
-    ostringstream ss;
-    ss << '(';
-    ss << print(op->a);
-    ss << " || ";
-    ss << print(op->b);
-    ss << ')';
     expr = ss.str();
 }
 
@@ -890,9 +812,10 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
         stream << "// Define compute level for \"" << op->name << "\".\n";
 
         internal_assert(env.count(op->name));
-        Function func = env.find(op->name)->second;
+        const Function &func = env.find(op->name)->second;
 
         const LoopLevel &compute_at = func.schedule().compute_level();
+        // TODO(psuriana): Do you need to do .after() for inlined?
         if (compute_at.is_root() || compute_at.is_inline()) {
             if (order[0] == op->name) {
                 // Initial definition
@@ -915,7 +838,7 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
 
                 // Initial definition
                 stream << do_indent();
-                stream << print_name(op->name + ".s0") << ".after(" << print_name(prev.name() + "_s")
+                stream << print_name(op->name + ".s0") << ".after(" << print_name(prev.name() + ".s")
                        << std::to_string(prev.updates().size()) << ", computation::root_dimension);\n";
                 // Update definitions
                 for (size_t i = 0; i < func.updates().size(); ++i) {
@@ -928,9 +851,8 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
             string enclosing_func_name = get_current_func_name();
             internal_assert(compute_at.func() == enclosing_func_name);
             int enclosing_func_stage = get_current_stage();
-            string parent = print_name(enclosing_func_name + "_s" + std::to_string(enclosing_func_stage));
+            string parent = print_name(enclosing_func_name + ".s" + std::to_string(enclosing_func_stage));
 
-            // TODO(psuriana): should compute at stage as well
             debug(5) << "Compute Func " << op->name << " at " << compute_at.var().name() << "(" << loop_depth << ")\n";
 
             // Initial definition
@@ -954,10 +876,11 @@ string CodeGen_Tiramisu::define_constant(const string &name, Expr val) {
 
     val = simplify(val);
 
+    // Global constant
     ss << "tiramisu::constant " << name << "(\"" << name << "\", ";
     ss << print(val);
     ss << ", " << halide_type_to_tiramisu_type_str(val.type())
-       << ", true, NULL, 0, &" << func << ");\n";
+       << ", true, NULL, 0, &" << pipeline << ");\n";
 
     constant_list.insert(name);
 
@@ -978,7 +901,7 @@ string CodeGen_Tiramisu::define_wrapper_let(const string &computation_name,
     ss << "tiramisu::constant " << name << "(\"" << name << "\", ";
     ss << print(val);
     ss << ", " << halide_type_to_tiramisu_type_str(val.type())
-       << ", false, &" << computation_name << ", 1, &" << func << ");\n";
+       << ", false, &" << computation_name << ", 1, &" << pipeline << ");\n";
 
     constant_list.insert(name);
 
@@ -1049,11 +972,7 @@ void CodeGen_Tiramisu::visit(const For *op) {
 }
 
 void CodeGen_Tiramisu::visit(const Evaluate *op) {
-    //TODO(psuriana): do nothing for now
-}
-
-void CodeGen_Tiramisu::visit(const Load *op) {
-    user_error << "Conversion of Load to Tiramisu is not currently supported.\n";
+    // TODO(psuriana): do nothing for now
 }
 
 void CodeGen_Tiramisu::visit(const Provide *op) {
@@ -1084,7 +1003,7 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
     string symbolic_str = get_loop_bound_vars();
     string dim_str = to_string(get_stage_dims(op->name, stage, false));
     if (!symbolic_str.empty()) {
-        ss << get_loop_bound_vars() + "->{" << name + dim_str << ": \"\n";
+        ss << symbolic_str + "->{" << name + dim_str << ": \"\n";
     } else {
         ss << "{" << name << dim_str + ": \"\n";
     }
@@ -1099,7 +1018,7 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
     }
 
     ss << ", true, " << halide_type_to_tiramisu_type_str(op->values[0].type())
-           << ", &" << func << ");\n";
+           << ", &" << pipeline << ");\n";
     indent -= 5*tab_size;
 
     computation_list.insert(name);
@@ -1138,6 +1057,7 @@ Expr CodeGen_Tiramisu::substitute_in_scope(Expr expr) const {
 void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
     string name = print_name(op->name);
 
+    // TODO(psuriana): Assume we don't have duplicate compute for now
     user_assert(temporary_buffers.find("buff_" + name) == temporary_buffers.end())
         << "Duplicate allocation (i.e. duplicate compute) is not currently supported.\n";
 
@@ -1158,7 +1078,7 @@ void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
         bounds.push_back(r);
     }
 
-    // Assert that the bounds on the dimensions start from 0 for now.
+    // TODO(psuriana): Assert that the bounds on the dimensions start from 0 for now.
     for (size_t i = 0; i < bounds.size(); ++i) {
         user_assert(is_zero(bounds[i].min))
             << "Bound of realize node \"" << name << "\" should start from 0 for now.\n"
@@ -1183,20 +1103,17 @@ void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
     stream << "}, ";
 
     stream << halide_type_to_tiramisu_type_str(op->types[0]) << ", NULL, tiramisu::a_temporary, "
-           << "&" << func << ");\n";
+           << "&" << pipeline << ");\n";
 
     temporary_buffers.insert(buffer_name);
 }
 
 void CodeGen_Tiramisu::visit(const Realize *op) {
-    // We will ignore the condition on the Realize node for now.
+    // TODO(psuriana): We will ignore the condition on the Realize node for now.
 
     stream << "\n";
     stream << do_indent();
-    stream << "// Define temporary buffers for \"" << op->name << "\".\n";
-
-    internal_assert(env.count(op->name));
-    Function func = env.find(op->name)->second;
+    stream << "// Define temporary buffers for \"" << print_name(op->name) << "\".\n";
 
     generate_buffer(op);
 
@@ -1234,7 +1151,7 @@ void CodeGen_Tiramisu::visit(const Call *op) {
         vector<Expr> normalized_args;
         for (int i = op->args.size()-1; i >= 0; --i) {
             Expr arg = op->args[i];
-            // Normalize it by introduction let Expr if it is not a Sub or Add or Variable
+            // Normalize it by introducing let Expr if it is not a Sub or Add or Variable
             if (!(arg.as<Variable>() || is_const(arg) || arg.as<Add>() || arg.as<Sub>())) {
                 string var_name = unique_name('t');
                 Expr var = Variable::make(Int(32), var_name);
@@ -1288,7 +1205,9 @@ void CodeGen_Tiramisu::visit(const Call *op) {
 
 void CodeGen_Tiramisu::visit(const Block *op) {
     print(op->first);
-    if (op->rest.defined()) print(op->rest);
+    if (op->rest.defined()) {
+        print(op->rest);
+    }
 }
 
 void CodeGen_Tiramisu::test() {
@@ -1297,26 +1216,27 @@ void CodeGen_Tiramisu::test() {
 }
 
 void print_to_tiramisu(Stmt s, ostream &dest, const string &pipeline_name,
-                   const vector<Function> &outputs,
-                   const vector<vector<int32_t>> &output_buffer_extents,
-                   const vector<Type> &output_buffer_types,
-                   const vector<string> &inputs,
-                   const vector<vector<int32_t>> &input_buffer_extents,
-                   const vector<Type> &input_buffer_types,
-                   const vector<string> &input_params,
-                   const vector<Type> &input_param_types,
-                   const vector<string> &order,
-                   const map<string, Function> &env) {
+                       const vector<Function> &outputs,
+                       const vector<vector<int32_t>> &output_buffer_extents,
+                       const vector<Type> &output_buffer_types,
+                       const vector<string> &inputs,
+                       const vector<vector<int32_t>> &input_buffer_extents,
+                       const vector<Type> &input_buffer_types,
+                       const vector<string> &input_params,
+                       const vector<Type> &input_param_types,
+                       const vector<string> &order,
+                       const map<string, Function> &env) {
 
     NormalizeVariableName normalize;
     s = normalize.mutate(s);
-    debug(0) << "After normalization:\n" << s << "\n\n";
+    debug(3) << "After normalization:\n" << s << "\n\n";
 
     // TODO(psuriana): Need to re-normalize the allocation bound to start from 0
 
     CodeGen_Tiramisu cg(dest, pipeline_name, outputs, output_buffer_extents,
-                    output_buffer_types, inputs, input_buffer_extents,
-                    input_buffer_types, input_params, input_param_types, order, env);
+                        output_buffer_types, inputs, input_buffer_extents,
+                        input_buffer_types, input_params, input_param_types,
+                        order, env);
     cg.print(s);
 }
 

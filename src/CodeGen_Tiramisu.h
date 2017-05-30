@@ -39,8 +39,8 @@ public:
                      const std::map<std::string, Function> &env);
     ~CodeGen_Tiramisu();
 
-    std::string print(Expr e);
-    void print(Stmt s);
+    EXPORT std::string print(Expr e);
+    EXPORT void print(Stmt s);
 
     EXPORT static void test();
 
@@ -64,14 +64,14 @@ private:
     std::ostream &stream;
     int indent;
 
-    std::string func; // Represent one Halide pipeline
+    std::string pipeline; // Represent one Halide pipeline
     const std::vector<std::string> &order;
     const std::map<std::string, Function> &env;
 
-    std::set<std::string> output_buffers;
-    std::set<std::string> input_buffers;
     std::vector<std::pair<std::string, Expr>> scope; // Scope of the variables
     std::vector<Loop> loop_dims;
+    std::set<std::string> output_buffers;
+    std::set<std::string> input_buffers;
     std::set<std::string> temporary_buffers;
     std::set<std::string> computation_list;
     std::set<std::string> constant_list;
@@ -101,6 +101,9 @@ private:
 
     std::vector<std::string> get_stage_dims(const std::string &name, int stage, bool ignore_rvar) const;
     std::vector<std::string> get_stage_rvars(const std::string &name, int stage) const;
+
+    template <typename T>
+    void visit_binary(const T *op, const std::string &op_str);
 
 protected:
     using IRVisitor::visit;
@@ -145,6 +148,8 @@ protected:
     void visit(const Block *);
     void visit(const IfThenElse *);
     void visit(const Evaluate *);
+    void visit(const Shuffle *);
+    void visit(const Prefetch *);
 };
 
 /**
