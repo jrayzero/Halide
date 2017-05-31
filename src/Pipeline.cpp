@@ -217,7 +217,6 @@ void Pipeline::compile_to_c(const string &filename,
 }
 
 void Pipeline::compile_to_tiramisu(const string &filename,
-                                   const vector<Argument> &args,
                                    const string &fn_name,
                                    const Target &target) {
 
@@ -237,7 +236,7 @@ void Pipeline::compile_to_tiramisu(const string &filename,
 
     vector<string> order; // Realization order
     map<string, Function> env;
-    Stmt body = lower_main_stmt(contents->outputs, fn_name, target, order, env, custom_passes, true);
+    Stmt body = lower_main_stmt(contents->outputs, new_fn_name, target, order, env, custom_passes, true);
 
     vector<string> non_inlined_order;
     for (const auto &f : order) {
@@ -249,14 +248,51 @@ void Pipeline::compile_to_tiramisu(const string &filename,
     internal_assert(!non_inlined_order.empty());
 
     // Get all the arguments/global images referenced in this function.
-    //vector<Argument> public_args = build_public_args(args, target);
-    //vector<Buffer<>> global_images = validate_arguments(public_args, body);
-
     vector<string> inputs;
     vector<vector<int32_t>> input_buffer_extents;
     vector<Type> input_buffer_types;
 
-    /*for (Buffer<> buf : global_images) {
+    vector<string> outputs;
+    vector<vector<int32_t>> output_buffer_extents;
+    vector<Type> output_buffer_types;
+
+    vector<string> input_params;
+    vector<Type> input_param_types;
+
+    for (const auto &out : contents->outputs) {
+        for (const Parameter &buf : out.output_buffers()) {
+            outputs.push_back(buf.name());
+            output_buffer_types.push_back(buf.type());
+            vector<int32_t> buffer_extents;
+            for (int i = 0; i < buf.dimensions(); ++i) {
+                // Just use some random value since it's going to be replaced anyway
+                buffer_extents.push_back(1024);
+            }
+            output_buffer_extents.push_back(buffer_extents);
+        }
+    }
+
+    for (const Argument &arg : infer_arguments()) {
+        internal_assert(arg.is_input());
+        if (arg.is_buffer()) {
+            inputs.push_back(arg.name);
+            input_buffer_types.push_back(arg.type);
+            vector<int32_t> buffer_extents;
+            for (int i = 0; i < arg.dimensions; ++i) {
+                // Just use some random value since it's going to be replaced anyway
+                buffer_extents.push_back(1024);
+            }
+            input_buffer_extents.push_back(buffer_extents);
+        } else {
+            input_params.push_back(arg.name);
+            input_param_types.push_back(arg.type);
+        }
+    }
+
+    /*vector<Argument> public_args = build_public_args(args, target);
+    vector<Buffer<>> global_images = validate_arguments(public_args, body);
+
+    for (Buffer<> buf : global_images) {
         inputs.push_back(buf.name());
         input_buffer_types.push_back(buf.type());
         vector<int32_t> buffer_extents;
@@ -271,16 +307,9 @@ void Pipeline::compile_to_tiramisu(const string &filename,
             buffer_extents.push_back(extent->value);
         }
         input_buffer_extents.push_back(buffer_extents);
-    }*/
+    }
 
-    vector<string> outputs;
-    vector<vector<int32_t>> output_buffer_extents;
-    vector<Type> output_buffer_types;
-
-    vector<string> input_params;
-    vector<Type> input_param_types;
-
-    /*for (const Argument &arg : public_args) {
+    for (const Argument &arg : public_args) {
         if (arg.is_buffer()) {
             if (arg.is_input()) {
                 inputs.push_back(arg.name);
@@ -405,7 +434,6 @@ vector<Argument> Pipeline::infer_arguments(Stmt body) {
             result.push_back(arg.arg);
         }
     }
-
 
     return result;
 }

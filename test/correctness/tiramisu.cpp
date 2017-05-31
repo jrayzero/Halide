@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
         Buffer<int> input = in.realize(100, 50);
 
         f(x, y) = cast(Float(32), input(max(x, y), y) >> 2);
-        f.compile_to_tiramisu("fusion_tiramisu.cpp", {}, "fusion_tiramisu");
+        f.compile_to_tiramisu("fusion_tiramisu.cpp", "fusion_tiramisu");
     }
 
     if (0) { // With reduction
@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
         RDom r(0, 10);
         f(x, y) = cast<uint8_t>(0);
         f(x, y) += input(x, y, r);
-        f.compile_to_tiramisu("test_reduction_operator.cpp", {}, "test_reduction_operator");
+        f.compile_to_tiramisu("test_reduction_operator.cpp", "test_reduction_operator");
     }
 
     if (0) {
@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
         C(x, y) = cast<int8_t>(0);
         C(x, y) += A(x, r) * B(r, y);
 
-        C.compile_to_tiramisu("fusion_tiramisu.cpp", {A, B}, "fusion_tiramisu");
+        C.compile_to_tiramisu("fusion_tiramisu.cpp", "fusion_tiramisu");
     }
 
     if (0) {
@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
         Buffer<int> input = in.realize(100, 50);
 
         f(x, y) = cast(Float(32), input(x, y) >> 2);
-        f.compile_to_tiramisu("fusion_tiramisu.cpp", {}, "fusion_tiramisu");
+        f.compile_to_tiramisu("fusion_tiramisu.cpp", "fusion_tiramisu");
     }
 
     if (0) {
@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
         Buffer<int> input = in.realize(100, 50);
 
         f(x, y) = cast(Float(32), input(x, y) >> 2);
-        f.compile_to_tiramisu("fusion_tiramisu.cpp", {}, "fusion_tiramisu");
+        f.compile_to_tiramisu("fusion_tiramisu.cpp", "fusion_tiramisu");
     }
 
     if (0) {
@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
 
         f(x, y) = cast(Float(32), in(x, y) >> 2);
         Buffer<int> f_img(Int(32), 100, 50);
-        f.compile_to_tiramisu("fusion_tiramisu.cpp", {}, "fusion_tiramisu");
+        f.compile_to_tiramisu("fusion_tiramisu.cpp", "fusion_tiramisu");
     }
 
     if (0) {
@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
 
         f(x, y) = cast(Float(32), in(x, y) >> 2);
         Buffer<int> f_img(Int(32), 100, 50);
-        f.compile_to_tiramisu("fusion_tiramisu.cpp", {}, "fusion_tiramisu");
+        f.compile_to_tiramisu("fusion_tiramisu.cpp", "fusion_tiramisu");
     }
 
     if (0) {
@@ -125,7 +125,7 @@ int main(int argc, char **argv) {
         RDom r(0, N);
         C(x,y) += A(x,r) * B(r,y);
 
-        C.compile_to_tiramisu("fusion_tiramisu.cpp", {}, "fusion_tiramisu");
+        C.compile_to_tiramisu("fusion_tiramisu.cpp", "fusion_tiramisu");
     }
 
     // Fusion benchmark
@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
         Buffer<uint8_t> g_im(2124, 3540, 3);
         Pipeline({f, g}).realize({f_im, g_im});
 
-        //Pipeline({f, g}).compile_to_tiramisu("fusion_tiramisu.cpp", {in}, "fusion_tiramisu");
+        //Pipeline({f, g}).compile_to_tiramisu("fusion_tiramisu.cpp", "fusion_tiramisu");
     }
 
     // Filter 2D
@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
 
         //filter2D.realize(2116, 3532, 3);
 
-        filter2D.compile_to_tiramisu("filter2D_tiramisu.cpp", {in, kernel}, "filter2D_tiramisu");
+        filter2D.compile_to_tiramisu("filter2D_tiramisu.cpp", "filter2D_tiramisu");
     }
 
     // Gaussian 5x5 benchmark
@@ -209,7 +209,7 @@ int main(int argc, char **argv) {
         gaussian_x.compute_root();
 
         //gaussian.realize(2116, 3532, 3);
-        gaussian.compile_to_tiramisu("gaussian_tiramisu.cpp", {in, kernelX, kernelY}, "gaussian_tiramisu");
+        gaussian.compile_to_tiramisu("gaussian_tiramisu.cpp", "gaussian_tiramisu");
     }
 
     // Blur x-y
@@ -232,7 +232,7 @@ int main(int argc, char **argv) {
         blur_x.compute_at(blur_y, y_inner);
 
         blur_y.realize(2116, 3532, 3);
-        //blur_y.compile_to_tiramisu("blurxy_tiramisu.cpp", {input}, "blurxy_tiramisu");
+        //blur_y.compile_to_tiramisu("blurxy_tiramisu.cpp", "blurxy_tiramisu");
     }
 
     // RGB to YUV420
@@ -254,7 +254,7 @@ int main(int argc, char **argv) {
         Buffer<uint8_t> y_im(size, size), u_im(size/2, size/2), v_im(size/2, size/2);
         Pipeline({y_part, u_part, v_part}).realize({y_im, u_im, v_im});*/
 
-        Pipeline({y_part, u_part, v_part}).compile_to_tiramisu("rgbyuv420.cpp", {rgb}, "rgbyuv420");
+        Pipeline({y_part, u_part, v_part}).compile_to_tiramisu("rgbyuv420.cpp", "rgbyuv420");
     }
 
     // CVT Color benchmark
@@ -280,7 +280,7 @@ int main(int argc, char **argv) {
 
         RGB2Gray.realize(2116, 3538);
 
-        //RGB2Gray.compile_to_tiramisu("cvtcolor.cpp", {in}, "cvtcolor");
+        //RGB2Gray.compile_to_tiramisu("cvtcolor.cpp", "cvtcolor");
     }
 
     // Rec-filter
@@ -304,7 +304,7 @@ int main(int argc, char **argv) {
 
         rec_filter.realize(2116, 3538, 3);
 
-        rec_filter.compile_to_tiramisu("recfilter_tiramisu.cpp", {in, a0, a1, a2}, "recfilter_tiramisu");
+        rec_filter.compile_to_tiramisu("recfilter_tiramisu.cpp", "recfilter_tiramisu");
     }
 
     if (0) {
@@ -325,11 +325,11 @@ int main(int argc, char **argv) {
                        beta * (in(r.x+1, r.y) + in(r.x-1, r.y) + in(r.x, r.y+1) + in(r.x, r.y-1));
 
         heat2d.parallel(y);//.vectorize(x, 8);
-        heat2d.parallel(r.y);//.vectorize(r.x, 8);
+        heat2d.update().parallel(r.y);//.vectorize(r.x, 8);
 
         //heat2d.realize(10000, 10000);
 
-        heat2d.compile_to_tiramisu("heat2d_tiramisu.cpp", {in, alpha, beta}, "heat2d_tiramisu");
+        heat2d.compile_to_tiramisu("heat2d_tiramisu.cpp", "heat2d_tiramisu");
     }
 
     if (1) {
@@ -353,7 +353,7 @@ int main(int argc, char **argv) {
         divergence2d.update().parallel(r.y);//.vectorize(r.x, 8);
 
         //divergence2d.realize(10000, 10000);
-        divergence2d.compile_to_tiramisu("divergence2d_tiramisu.cpp", {in, alpha, beta}, "divergence2d_tiramisu");
+        divergence2d.compile_to_tiramisu("divergence2d_tiramisu.cpp", "divergence2d_tiramisu");
     }
 
     printf("Success!\n");

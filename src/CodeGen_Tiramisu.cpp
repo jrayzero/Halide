@@ -997,11 +997,12 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
     ostringstream ss;
 
     ss << do_indent();
-    ss << "tiramisu::computation " << name << "(\"";
-    indent += 5*tab_size;
+    ss << "tiramisu::computation " << name << "(\n";
+    indent += tab_size;
 
     string symbolic_str = get_loop_bound_vars();
     string dim_str = to_string(get_stage_dims(op->name, stage, false));
+    ss << do_indent() << "\"";
     if (!symbolic_str.empty()) {
         ss << symbolic_str + "->{" << name + dim_str << ": \"\n";
     } else {
@@ -1019,7 +1020,7 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
 
     ss << ", true, " << halide_type_to_tiramisu_type_str(op->values[0].type())
            << ", &" << pipeline << ");\n";
-    indent -= 5*tab_size;
+    indent -= tab_size;
 
     computation_list.insert(name);
 
