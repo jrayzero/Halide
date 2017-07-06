@@ -34,7 +34,8 @@ const string headers =
     "#include \"halide_image_io.h\"\n";
 
 const int tab_size = 4;
-}
+
+} // anonymous namespace
 
 template<typename T>
 std::string to_string(const std::vector<T>& v) {
@@ -66,6 +67,8 @@ void CodeGen_Tiramisu::print(Stmt s) {
 }
 
 namespace {
+
+// Replace non-alphanumeric chars with combination of underscores.
 string print_name(const string &name) {
     ostringstream oss;
 
@@ -83,6 +86,7 @@ string print_name(const string &name) {
     return oss.str();
 }
 
+// Return string representation of Halide type in Tiramisu type.
 string halide_type_to_tiramisu_type_str(Type type) {
     if (type.is_uint()) {
         if (type.bits() == 8) {
@@ -112,7 +116,7 @@ string halide_type_to_tiramisu_type_str(Type type) {
         } else if (type.bits() == 64) {
             return "tiramisu::p_float64";
         } else {
-            user_error << "Floats other than 32 and 64 bits are not suppored in Tiramisu.\n";
+            user_error << "Floats other than 32 and 64 bits are not supported in Tiramisu.\n";
         }
     } else if (type.is_bool()) {
         return "tiramisu::p_boolean";
@@ -122,6 +126,7 @@ string halide_type_to_tiramisu_type_str(Type type) {
     return "tiramisu::p_none";
 }
 
+// Return string representation of Halide type in C type.
 string halide_type_to_c_type_str(Type type) {
     if (type.is_uint()) {
         if (type.bits() == 8) {
@@ -151,7 +156,7 @@ string halide_type_to_c_type_str(Type type) {
         } else if (type.bits() == 64) {
             return "double";
         } else {
-            user_error << "Floats other than 32 and 64 bits are not suppored in C.\n";
+            user_error << "Floats other than 32 and 64 bits are not supported in C.\n";
         }
     } else if (type.is_bool()) {
         return "bool";
@@ -161,7 +166,9 @@ string halide_type_to_c_type_str(Type type) {
     return "void";
 }
 
-class NormalizeVariableName : public IRMutator {
+// Walk through the expr/stmt and replace all non-alphanumeric chars with
+// combination of underscores.
+class NormalizeVariableNames : public IRMutator {
     using IRMutator::visit;
 
     void visit(const For *op) {
@@ -290,7 +297,7 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
             stream << "int " << extent_str << " = " << buffer_extents[i] << ";\n";
 
             sizes << "tiramisu::expr(" << extent_str << ")";
-            // TODO(psuriana): Assume "min" always starts from 0 for now
+            // TODO(tiramisu): Assume "min" always starts from 0 for now
             scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
             //scope.push_back(std::make_pair(extent_str, make_const(Int(32), buffer_extents[i])));
             if (i != 0) {
@@ -380,7 +387,7 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
 namespace {
 
 int get_split_fuse_dim_index(const vector<Dim> &dims, const string &var) {
-    // TODO(psuriana): we need to pass the "original" dim list (i.e. the one
+    // TODO(tiramisu): we need to pass the "original" dim list (i.e. the one
     // before Halide applies any splits, reordering, etc.)
     return 0;
 }
@@ -402,7 +409,7 @@ void CodeGen_Tiramisu::generate_schedule(const Function &func, int stage,
     size_t dim_size = dims.size() - 1; // Ignore __outermost
 
     // Add split/fuse schedule
-    // TODO(psuriana): the mapping from dim name to index is a complete mess in Tiramisu. Not
+    // TODO(tiramisu): the mapping from dim name to index is a complete mess in Tiramisu. Not
     // sure how this will pan out will a more complex schedules (with reorder, etc)
     /*for (const Split &split : schedule.splits()) {
         if (split.is_split()) {
@@ -436,7 +443,7 @@ void CodeGen_Tiramisu::generate_schedule(const Function &func, int stage,
         }
     }
 
-    // TODO(psuriana): add GPU schedules
+    // TODO(tiramisu): add GPU schedules
 }
 
 void CodeGen_Tiramisu::generate_schedules() {
@@ -449,7 +456,7 @@ void CodeGen_Tiramisu::generate_schedules() {
         internal_assert(env.count(func_name));
         const Function &func = env.find(func_name)->second;
 
-        // TODO(psuriana): schedule the update definition as well
+        // TODO(tiramisu): schedule the update definition as well
         generate_schedule(func, 0, func.definition().schedule(), i);
     }
 }
@@ -698,7 +705,7 @@ void CodeGen_Tiramisu::visit(const Cast *op) {
     expr = ss.str();
 }
 
-//TODO(psuriana) : fix this
+//TODO(tiramisu) : fix this
 void CodeGen_Tiramisu::visit(const Variable *op) {
     /*user_assert(!op->param.defined() && !op->image.defined())
         << "Can only handle conversion of simple variable to Tiramisu for now.\n";*/
@@ -707,7 +714,7 @@ void CodeGen_Tiramisu::visit(const Variable *op) {
     const auto &iter = constant_list.find(op->name);
     if (iter != constant_list.end()) {
         // It is a reference to variable defined in Let/LetStmt
-        //TODO(psuriana): when do we actually generate constant???
+        //TODO(tiramisu): when do we actually generate constant???
         ss << (*iter) << "(0)";
     } else {
         const auto &it = extent_list.find(op->name);
@@ -815,7 +822,7 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
         const Function &func = env.find(op->name)->second;
 
         const LoopLevel &compute_at = func.schedule().compute_level();
-        // TODO(psuriana): Do you need to do .after() for inlined?
+        // TODO(tiramisu): Do you need to do .after() for inlined?
         if (compute_at.is_root() || compute_at.is_inline()) {
             if (order[0] == op->name) {
                 // Initial definition
@@ -972,12 +979,12 @@ void CodeGen_Tiramisu::visit(const For *op) {
 }
 
 void CodeGen_Tiramisu::visit(const Evaluate *op) {
-    // TODO(psuriana): do nothing for now
+    // TODO(tiramisu): do nothing for now
 }
 
 void CodeGen_Tiramisu::visit(const Provide *op) {
     int stage = get_current_stage();
-    string name = print_name(op->name + "_s" + std::to_string(stage));
+    string name = print_name(op->name + ".s" + std::to_string(stage));
     string buffer_name = "buff_" + print_name(op->name);
 
     string old_computation = current_computation;
@@ -1058,11 +1065,11 @@ Expr CodeGen_Tiramisu::substitute_in_scope(Expr expr) const {
 void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
     string name = print_name(op->name);
 
-    // TODO(psuriana): Assume we don't have duplicate compute for now
+    // TODO(tiramisu): Assume we don't have duplicate compute for now
     user_assert(temporary_buffers.find("buff_" + name) == temporary_buffers.end())
         << "Duplicate allocation (i.e. duplicate compute) is not currently supported.\n";
 
-    // Assert that the types of all buffer dimensions are the same for now.
+    // TODO(tiramisu): Assert that the types of all buffer dimensions are the same for now.
     for (size_t i = 1; i < op->types.size(); ++i) {
         user_assert(op->types[i-1] == op->types[i])
             << "Realize node should have the same types for all dimensions for now.\n";
@@ -1079,7 +1086,7 @@ void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
         bounds.push_back(r);
     }
 
-    // TODO(psuriana): Assert that the bounds on the dimensions start from 0 for now.
+    // TODO(tiramisu): Assert that the bounds on the dimensions start from 0 for now.
     for (size_t i = 0; i < bounds.size(); ++i) {
         user_assert(is_zero(bounds[i].min))
             << "Bound of realize node \"" << name << "\" should start from 0 for now.\n"
@@ -1110,7 +1117,7 @@ void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
 }
 
 void CodeGen_Tiramisu::visit(const Realize *op) {
-    // TODO(psuriana): We will ignore the condition on the Realize node for now.
+    // TODO(tiramisu): We will ignore the condition on the Realize node for now.
 
     stream << "\n";
     stream << do_indent();
@@ -1148,7 +1155,7 @@ void CodeGen_Tiramisu::visit(const Call *op) {
             << Expr(op) << "\n"
             << "is pure? " << op->is_pure() << "\n";
 
-        //TODO(psuriana): need to normalize the index
+        //TODO(tiramisu): need to normalize the index
         vector<Expr> normalized_args;
         for (int i = op->args.size()-1; i >= 0; --i) {
             Expr arg = op->args[i];
@@ -1228,11 +1235,16 @@ void print_to_tiramisu(Stmt s, ostream &dest, const string &pipeline_name,
                        const vector<string> &order,
                        const map<string, Function> &env) {
 
-    NormalizeVariableName normalize;
+    // Replace all non-alphanumeric chars with combination of underscores to
+    // make them legal C variable names.
+    NormalizeVariableNames normalize;
     s = normalize.mutate(s);
-    debug(3) << "After normalization:\n" << s << "\n\n";
+    debug(3) << "After variable name normalization:\n" << s << "\n\n";
 
-    // TODO(psuriana): Need to re-normalize the allocation bound to start from 0
+    // TODO(tiramisu): Need to re-normalize the buffers to start from 0.
+    // For now, we assume all buffers starts from 0 which may not be
+    // true in some cases. Tiramisu doesn't currently supported buffer
+    // with non-zero minimum value.
 
     CodeGen_Tiramisu cg(dest, pipeline_name, outputs, output_buffer_extents,
                         output_buffer_types, inputs, input_buffer_extents,

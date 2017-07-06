@@ -231,6 +231,8 @@ void Pipeline::compile_to_tiramisu(const string &filename,
     map<string, Function> env;
     Stmt body = lower_main_stmt(contents->outputs, new_fn_name, target, order, env, custom_passes, true);
 
+    // List of non-inlined function names in the pipeline (sorted by realization
+    // order)
     vector<string> non_inlined_order;
     for (const auto &f : order) {
         internal_assert(env.count(f));
@@ -240,7 +242,7 @@ void Pipeline::compile_to_tiramisu(const string &filename,
     }
     internal_assert(!non_inlined_order.empty());
 
-    // Get all the arguments/global images referenced in this function.
+    // Get all the arguments/global images referenced in this function
     vector<string> inputs;
     vector<vector<int32_t>> input_buffer_extents;
     vector<Type> input_buffer_types;

@@ -64,7 +64,8 @@ private:
     std::ostream &stream;
     int indent;
 
-    std::string pipeline; // Represent one Halide pipeline
+    // The name of one Halide pipeline
+    std::string pipeline;
     const std::vector<std::string> &order;
     const std::map<std::string, Function> &env;
 
