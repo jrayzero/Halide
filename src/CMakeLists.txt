@@ -286,7 +286,6 @@ set(HEADER_FILES
   Debug.h
   DebugArguments.h
   DebugToFile.h
-  DeepCopy.h
   Definition.h
   Deinterleave.h
   DeviceArgument.h
@@ -303,6 +302,7 @@ set(HEADER_FILES
   Float16.h
   Func.h
   Function.h
+  FunctionPtr.h
   FuseGPUThreadLoops.h
   FuzzFloatStores.h
   Generator.h
@@ -319,7 +319,6 @@ set(HEADER_FILES
   InferArguments.h
   Interval.h
   InjectHostDevBufferCopies.h
-  InjectImageIntrinsics.h
   InjectOpenGLIntrinsics.h
   Inline.h
   InlineReductions.h
@@ -440,7 +439,6 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   Debug.cpp
   DebugArguments.cpp
   DebugToFile.cpp
-  DeepCopy.cpp
   Definition.cpp
   Deinterleave.cpp
   DeviceArgument.cpp
@@ -470,7 +468,6 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   InferArguments.cpp
   Interval.cpp
   InjectHostDevBufferCopies.cpp
-  InjectImageIntrinsics.cpp
   InjectOpenGLIntrinsics.cpp
   Inline.cpp
   InlineReductions.cpp
@@ -633,7 +630,6 @@ if (MSVC)
     target_compile_options(Halide PRIVATE "/Zc:sizedDealloc-")
   endif()
 else()
-  target_compile_options(Halide PUBLIC "-std=c++11") # Halide and its clients need to use C++11
   target_compile_options(Halide PUBLIC "-fno-rtti")
 endif()
 

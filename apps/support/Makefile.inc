@@ -8,7 +8,7 @@ UNAME ?= $(shell uname)
 
 ifeq ($(OS), Windows_NT)
 # Flags for mingw environment
-LDFLAGS += -lole32 -luuid -Wl,--stack,8388608
+LDFLAGS += -lole32 -lkernel32 -luuid -Wl,--stack,8388608
 else
 LDFLAGS += -ldl -lpthread -lz
 endif
@@ -29,7 +29,8 @@ GENERATOR_DEPS ?= $(HALIDE_BIN_PATH)/lib/libHalide.a $(HALIDE_BIN_PATH)/include/
 
 LLVM_CONFIG ?= llvm-config
 LLVM_VERSION_TIMES_10 = $(shell $(LLVM_CONFIG) --version | cut -b 1,3)
-LLVM_LDFLAGS = $(shell $(LLVM_CONFIG) --ldflags --system-libs)
+HALIDE_SYSTEM_LDFLAGS = $(shell $(LLVM_CONFIG) --system-libs)
+LLVM_LDFLAGS = $(shell $(LLVM_CONFIG) --ldflags) $(HALIDE_SYSTEM_LDFLAGS)
 
 LLVM_CONFIG ?= llvm-config
 LLVM_FULL_VERSION = $(shell $(LLVM_CONFIG) --version)
@@ -72,9 +73,13 @@ ifneq (, $(findstring opengl,$(HL_TARGET)))
   OPENGL_LDFLAGS=$(PLATFORM_OPENGL_LDFLAGS)
 endif
 
-$(BIN)/RunGen.o: $(HALIDE_SRC_PATH)/tools/RunGen.cpp 
+ifneq (, $(findstring metal,$(HL_TARGET)))
+  LDFLAGS += -framework Metal -framework Foundation
+endif
+
+$(BIN)/RunGen.o: $(HALIDE_SRC_PATH)/tools/RunGen.cpp
 	@mkdir -p $(BIN)
-	@$(CXX) -c $< $(CXXFLAGS) $(IMAGE_IO_CXX_FLAGS) -I$(BIN) -o $@ 
+	@$(CXX) -c $< $(CXXFLAGS) $(IMAGE_IO_CXX_FLAGS) -I$(BIN) -o $@
 
 # Really, .SECONDARY is what we want, but it won't accept wildcards
 .PRECIOUS: $(BIN)/%.rungen
@@ -89,4 +94,3 @@ RUNARGS ?=
 #
 $(BIN)/%.run: $(BIN)/%.rungen
 	@$(CURDIR)/$< $(RUNARGS)
-

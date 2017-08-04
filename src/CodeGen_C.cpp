@@ -847,7 +847,8 @@ public:
     }
 
     static Vec broadcast(const ElementType &v) {
-        return Vec(from_native_vector, splat(v));
+        Vec zero; // Zero-initialized native vector.
+        return zero + v;
     }
 
     // TODO: this should be improved by taking advantage of native operator support.
@@ -1124,13 +1125,6 @@ private:
     enum FromNativeVector { from_native_vector };
     inline NativeVector(FromNativeVector, const NativeVectorType &src) {
         native_vector = src;
-    }
-
-    inline static NativeVectorType splat(const ElementType &v) {
-        // This is a trick: there's no "splat" operation,
-        // so we do a scalar-minus-vector-of-zero operation,
-        // and hope the compiler will optimize appropriately.
-        return v - (NativeVectorType){};
     }
 };
 #endif  // __has_attribute(ext_vector_type) || __has_attribute(vector_size)
@@ -1583,6 +1577,30 @@ void CodeGen_C::compile(const LoweredFunc &f) {
         }
         stream << "\n";
     }
+
+    if (is_header() && f.linkage == LoweredFunc::ExternalPlusMetadata) {
+        // C syntax for function-that-returns-function-pointer is fun.
+        const string getter = R"INLINE_CODE(
+
+// This allows the includer of this file to get the argv/metadata entry points
+// for this file without needing to know the specific function names;
+// if HALIDE_GET_STANDARD_ARGV_FUNCTION is defined before this file is
+// included, an inline function with that name is provided that return
+// a function pointer to the _argv() entry point (similarly,
+// HALIDE_GET_STANDARD_METADATA_FUNCTION -> _metadata() entry point).
+#ifdef HALIDE_GET_STANDARD_ARGV_FUNCTION
+inline int (*HALIDE_GET_STANDARD_ARGV_FUNCTION())(void**) {
+    return $NAME$_argv;
+}
+#endif
+#ifdef HALIDE_GET_STANDARD_METADATA_FUNCTION
+inline const struct halide_filter_metadata_t* (*HALIDE_GET_STANDARD_METADATA_FUNCTION())() {
+    return $NAME$_metadata;
+}
+#endif
+)INLINE_CODE";
+        stream << replace_all(getter, "$NAME$", f.name) << "\n\n";
+    }
 }
 
 void CodeGen_C::compile(const Buffer<> &buffer) {
@@ -1740,9 +1758,7 @@ void CodeGen_C::visit(const Mul *op) {
 void CodeGen_C::visit(const Div *op) {
     int bits;
     if (is_const_power_of_two_integer(op->b, &bits)) {
-        ostringstream oss;
-        oss << print_expr(op->a) << " >> " << bits;
-        print_assignment(op->type, oss.str());
+        visit_binop(op->type, op->a, make_const(op->a.type(), bits), ">>");
     } else if (op->type.is_int()) {
         print_expr(lower_euclidean_div(op->a, op->b));
     } else {
@@ -1753,9 +1769,7 @@ void CodeGen_C::visit(const Div *op) {
 void CodeGen_C::visit(const Mod *op) {
     int bits;
     if (is_const_power_of_two_integer(op->b, &bits)) {
-        ostringstream oss;
-        oss << print_expr(op->a) << " & " << ((1 << bits)-1);
-        print_assignment(op->type, oss.str());
+        visit_binop(op->type, op->a, make_const(op->a.type(), (1 << bits)-1), "&");
     } else if (op->type.is_int()) {
         print_expr(lower_euclidean_mod(op->a, op->b));
     } else {
