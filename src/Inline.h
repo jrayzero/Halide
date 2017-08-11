@@ -16,6 +16,7 @@ namespace Internal {
 // @{
 Stmt inline_function(Stmt, Function);
 Expr inline_function(Expr, Function);
+void inline_function(Function caller, Function f);
 // @}
 
 /** Check if the schedule of an inlined function is legal, throwing an error

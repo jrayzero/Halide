@@ -1129,6 +1129,7 @@ void CodeGen_Tiramisu::visit(const Realize *op) {
 }
 
 void CodeGen_Tiramisu::visit(const Call *op) {
+    // TODO(tiramisu): Handle extern function
     ostringstream ss;
     if (op->is_intrinsic(Call::shift_right)) {
         internal_assert(op->args.size() == 2);

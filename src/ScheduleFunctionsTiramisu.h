@@ -23,9 +23,9 @@ class Function;
  * appropriate places using the schedule. Returns a flag indicating
  * whether memoization passes need to be run. */
 std::string schedule_functions_tiramisu(const std::vector<Function> &outputs,
-		                                const std::vector<std::string> &order,
-				                        const std::map<std::string, Function> &env,
-				                        const Target &target);
+										const Target &target
+		                                std::vector<std::string> &order,
+				                        std::map<std::string, Function> &env);
 
 
 }
