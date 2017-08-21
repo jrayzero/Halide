@@ -24,9 +24,8 @@ class Function;
  * whether memoization passes need to be run. */
 std::string schedule_functions_tiramisu(const std::vector<Function> &outputs,
 										const Target &target
-		                                std::vector<std::string> &order,
-				                        std::map<std::string, Function> &env);
-
+		                                std::vector<std::string> order,
+				                        std::map<std::string, Function> env);
 
 }
 }

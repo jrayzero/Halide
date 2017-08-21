@@ -222,6 +222,10 @@ class NormalizeVariableNames : public IRMutator {
     }
 };
 
+Stmt normalize_variable_names(Stmt s) {
+    return NormalizeVariableNames().mutate(s);
+}
+
 } // anonymous namespace
 
 CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
@@ -386,64 +390,86 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
 
 namespace {
 
-int get_split_fuse_dim_index(const vector<Dim> &dims, const string &var) {
-    // TODO(tiramisu): we need to pass the "original" dim list (i.e. the one
-    // before Halide applies any splits, reordering, etc.)
-    return 0;
+bool var_name_match(string candidate, string var) {
+    internal_assert(var.find('.') == string::npos)
+        << "var_name_match expects unqualified names for the second argument. "
+        << "Name passed: " << var << "\n";
+    return (candidate == var) || Internal::ends_with(candidate, "." + var);
 }
 
-int get_compute_at_dim_index(const vector<Dim> &dims, const string &var) {
-    const auto iter = std::find_if(dims.begin(), dims.end(),
-        [&var](const Dim& d) { return (d.var == var); });
+int get_dim_index(const vector<string> &dims, const string &var) {
+    const auto &iter = std::find_if(dims.begin(), dims.end(),
+        [&var](const string &d) { return var_name_match(d, var); });
     internal_assert(iter != dims.end());
     return (iter - dims.begin());
 }
 
 } // anonymous namespace
 
+void CodeGen_Tiramisu::generate_split_schedule(const Function &func, int stage,
+                                               const Split &split, vector<string> &dims) {
+    // TODO(tiramisu): Rename and Fuse are not currently supported by Tiramisu,
+    // so throw an error for now
+    if (split.is_split()) {
+        int old_idx = get_dim_index(dims, split.old_var);
+
+        debug(0) << "Splitting " << func.name() << "." << split.old_var << "(" << old_idx << ")\n";
+        stream << do_indent();
+        stream << func.name() << ".split(" << std::to_string(old_idx) << ", "
+               << split.factor << ");\n";
+
+        // Update the 'dims' list to keep track of the new dim indices
+        string old_name = dims[old_idx];
+        dims.insert(dims.begin() + old_idx, dims[old_idx]);
+        dims[old_idx] = old_name + "." + split.inner;
+        dims[old_idx+1] = old_name + "." + split.outer;
+
+        // TODO(tiramisu): Check if this split is because of vectorize / tile
+        // TODO(tiramisu): Check for reorder
+
+        // TODO(tiramisu): Currently Tiramisu ignores the split strategy and
+        // uses whatever the default is in
+    } else if (split.is_fuse()) {
+        user_error << "Fuse is not currently supported by Tiramisu\n";
+    } else if (split.is_rename()) {
+        user_error << "Rename is not currently supported by Tiramisu\n";
+    }
+    // Do nothing for purify
+}
+
 void CodeGen_Tiramisu::generate_schedule(const Function &func, int stage,
                                          const StageSchedule &schedule, size_t order_index) {
     string name = print_name(func.name() + ".s" + std::to_string(stage));
 
-    const vector<Dim> &dims = schedule.dims();
-    size_t dim_size = dims.size() - 1; // Ignore __outermost
 
-    // Add split/fuse schedule
-    // TODO(tiramisu): the mapping from dim name to index is a complete mess in Tiramisu. Not
-    // sure how this will pan out will a more complex schedules (with reorder, etc)
-    /*for (const Split &split : schedule.splits()) {
-        if (split.is_split()) {
-            int index = get_split_fuse_dim_index(dims, split.old_var);
-
-            debug(0) << "Splitting " << func.name() << "." << split.old_var << "(" << index << ")\n";
-            stream << do_indent();
-            stream << func.name() << ".split(" << std::to_string(index) << ", "
-                   << split.factor << ");\n";
-
-        } else {
-            user_error << "Tiramisu only handles split.\n";
-        }
-    }*/
+    // Add split schedule
+    vector<string> dims = func.args();
+    for (const Split &split : schedule.splits()) {
+        generate_split_schedule(func, stage, split, dims);
+    }
 
     // Tag any parallel dimensions
-    for (size_t i = 0; i < dim_size; ++i) {
-        const Dim &d = dims[i];
+    int dim_size = (int)schedule.dims().size() - 1; // Ignore __outermost
+    for (int i = 0; i < dim_size; ++i) {
+        const Dim &d = schedule.dims()[i];
         if (d.for_type == ForType::Parallel) {
             debug(5) << "...Parallelize " << name << "." << d.var << " at index " << i << "\n";
             stream << do_indent();
-            stream << name << ".tag_parallel_dimension(" << std::to_string(dim_size - i - 1) << ");\n";
+            stream << name << ".tag_parallel_level(" << std::to_string(dim_size - i - 1) << ");\n";
         } else if (d.for_type == ForType::Vectorized) {
             internal_error << "Does not currently support vectorization\n";
+            // TODO(tiramisu): need to get the vectorize width from the split schedule
             /*debug(5) << "...Vectorize " << name << "." << d.var << "\n";
             stream << do_indent();
-            stream << name << ".tag_vector_dimension(" << std::to_string(dim_size - i) << ");\n";*/
+            stream << name << ".vectorize(" << std::to_string(dim_size - i) << ");\n";*/
         } else {
             internal_assert(d.for_type == ForType::Serial)
                 << "Can only emit serial/parallel/vectorized for loops to Tiramisu\n";
         }
     }
 
-    // TODO(tiramisu): add GPU schedules
+    // TODO(tiramisu): Add GPU schedules
+    // TODO(tiramisu): Handle update definition
 }
 
 void CodeGen_Tiramisu::generate_schedules() {
@@ -835,8 +861,8 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
                            << print_name(op->name + ".s" + std::to_string(i)) << ", computation::root_dimension);\n";
                 }
             } else {
-                const auto iter = std::find_if(order.begin(), order.end(),
-                    [&op](const string& f) { return (f == op->name); });
+                const auto &iter = std::find_if(order.begin(), order.end(),
+                    [&op](const string &f) { return (f == op->name); });
                 internal_assert(iter != order.end());
                 int order_index = iter - order.begin();
 
@@ -1238,8 +1264,7 @@ void print_to_tiramisu(Stmt s, ostream &dest, const string &pipeline_name,
 
     // Replace all non-alphanumeric chars with combination of underscores to
     // make them legal C variable names.
-    NormalizeVariableNames normalize;
-    s = normalize.mutate(s);
+    s = normalize_variable_names(s);
     debug(3) << "After variable name normalization:\n" << s << "\n\n";
 
     // TODO(tiramisu): Need to re-normalize the buffers to start from 0.

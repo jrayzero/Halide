@@ -49,18 +49,38 @@ string print_name(const string &name) {
     return oss.str();
 }
 
-vector<ApplySplitResult> generate_split_schedule(const Split &split, bool is_update, string prefix) {
+bool var_name_match(string candidate, string var) {
+    internal_assert(var.find('.') == string::npos)
+        << "var_name_match expects unqualified names for the second argument. "
+        << "Name passed: " << var << "\n";
+    return (candidate == var) || Internal::ends_with(candidate, "." + var);
+}
+
+int get_dim_index(const vector<Dim> &dims, const string &var) {
+    const auto &iter = std::find_if(dims.begin(), dims.end(),
+        [&var](const Dim &d) { return var_name_match(d.var, var); });
+    internal_assert(iter != dims.end());
+    return (iter - dims.begin());
+}
+
+string generate_split_schedule(const string &func_name, const string &prefix,
+                               const Split &split, vector<string> &dims) {
+    string schedule;
     // TODO(tiramisu): Rename and Fuse are not currently supported by Tiramisu,
     // so throw an error for now.
     if (split.is_split()) {
-        Expr inner = Variable::make(Int(32), prefix + split.inner);
-        Expr old_max = Variable::make(Int(32), prefix + split.old_var + ".loop_max");
-        Expr old_min = Variable::make(Int(32), prefix + split.old_var + ".loop_min");
-        Expr old_extent = Variable::make(Int(32), prefix + split.old_var + ".loop_extent");
+        int old_idx = get_dim_index(dims, split.old_var);
+        int outer = get_dim_index(dims, split.outer);
+        int inner = get_dim_index(dims, split.inner);
+
+        const int64_t *factor = as_const_int(split.factor);
+        internal_assert(factor);
+
+
+
 
         // TODO(tiramisu): Currently Tiramisu ignores the split strategy and
         // uses whatever the default is in
-
     } else if (split.is_fuse()) {
         user_error << "Fuse is not currently supported by Tiramisu\n";
     } else if (split.is_rename()) {
@@ -72,41 +92,29 @@ vector<ApplySplitResult> generate_split_schedule(const Split &split, bool is_upd
 }
 
 // Build a loop nest about a provide node using a schedule
-Stmt build_provide_loop_nest_helper(string func_name,
-                                    string prefix,
-                                    const vector<string> &dims,
-                                    const vector<Expr> &site,
-                                    const vector<Expr> &values,
-                                    const vector<Expr> &predicates,
-                                    const FuncSchedule &func_s,
-                                    const StageSchedule &stage_s,
-                                    bool is_update,
-                                    bool compile_to_tiramisu) {
+Stmt provide_loop_nest_schedule_helper(string func_name,
+                                       string prefix,
+                                       const vector<string> &dims,
+                                       const vector<Expr> &site,
+                                       const vector<Expr> &values,
+                                       const vector<Expr> &predicates,
+                                       const FuncSchedule &func_s,
+                                       const StageSchedule &stage_s,
+                                       bool is_update) {
 
-    // We'll build it from inside out, starting from a store node,
-    // then wrapping it in for loops.
+    // TODO(tiramisu): Handle Halide func_s.bounds()
 
     // Make the (multi-dimensional multi-valued) store node.
     Stmt stmt = Provide::make(func_name, values, site); // TODO(tiramisu): computation expression (buffer mapping ???)
 
     vector<Split> splits = stage_s.splits();
 
-    // Define the function args in terms of the loop variables using the splits
-    if (!compile_to_tiramisu) {
-        for (const Split &split : splits) {
-            vector<ApplySplitResult> splits_result = apply_split(split, is_update, prefix, dim_extent_alignment);
-        }
-    }
+    vector<string> pure_loop_dims;
 
-    // All containing lets and fors. Outermost first.
-    vector<Container> nest;
-
-    // Put the desired loop nest into the containers vector.
-    for (int i = (int)stage_s.dims().size() - 1; i >= 0; i--) {
-        // TODO(tiramisu): for-loop dimensions (outermost to innermost) (-> after splits etc are applied)
-        const Dim &dim = stage_s.dims()[i];
-        Container c = {Container::For, i, prefix + dim.var, Expr()};
-        nest.push_back(c);
+    // Dim list in Halide is defined from innermost to outermost, while in
+    // Tiramisu, it is defined from outermost to innermost.
+    for (int i = (int)dims.size() - 1; i >= 0; --i) {
+        pure_loop_dims.push_back(print_name(prefix + dims[i]));
     }
 
     // Put all the reduction domain predicates into the containers vector.
@@ -116,18 +124,6 @@ Stmt build_provide_loop_nest_helper(string func_name,
         pred_container.push_back(c);
     }
     int n_predicates = pred_container.size();
-
-    // Define the loop mins and extents in terms of the mins and maxs produced by bounds inference
-    for (const std::string &i : dims) { // TODO(psuriana): pure loop dimension (no splits, etc)
-        string var = prefix + i;
-        Expr max = Variable::make(Int(32), var + ".max");
-        Expr min = Variable::make(Int(32), var + ".min"); // Inject instance name here? (compute instance names during lowering)
-        stmt = LetStmt::make(var + ".loop_extent",
-                             (max + 1) - min,
-                             stmt);
-        stmt = LetStmt::make(var + ".loop_min", min, stmt);
-        stmt = LetStmt::make(var + ".loop_max", max, stmt);
-    }
 
     // Define the loop mins and extents for the reduction domain (if there is any)
     // in terms of the mins and maxs produced by bounds inference
@@ -144,13 +140,12 @@ Stmt build_provide_loop_nest_helper(string func_name,
 }
 
 // Build a loop nest about a provide node using a schedule
-Stmt build_provide_loop_nest(string func_name,
-                             string prefix,
-                             const vector<string> &dims,
-                             const FuncSchedule &f_sched,
-                             const Definition &def,
-                             bool is_update,
-                             bool compile_to_tiramisu) {
+Stmt provide_loop_nest_schedule(string func_name,
+                                string prefix,
+                                const vector<string> &dims,
+                                const FuncSchedule &f_sched,
+                                const Definition &def,
+                                bool is_update) {
 
     internal_assert(!is_update == def.is_init());
 
@@ -173,39 +168,19 @@ Stmt build_provide_loop_nest(string func_name,
     }
 
     // Default schedule/values if there is no specialization
-    Stmt stmt = build_provide_loop_nest_helper(
+    Stmt stmt = provide_loop_nest_schedule_helper(
         func_name, prefix, dims, site, values, def.split_predicate(), f_sched,
-        def.schedule(), is_update, compile_to_tiramisu);
+        def.schedule(), is_update);
 
-    // Make any specialized copies
-    const vector<Specialization> &specializations = def.specializations();
-    for (size_t i = specializations.size(); i > 0; i--) {
-        const Specialization &s = specializations[i-1];
-        Expr c = s.condition;
-        const Definition &s_def = s.definition;
-        Stmt then_case;
-        if (s.failure_message.empty()) {
-            then_case = build_provide_loop_nest(func_name, prefix, dims, f_sched,
-                                                s_def, is_update, compile_to_tiramisu);
-        } else {
-            internal_assert(equal(c, const_true()));
-            // specialize_fail() should only be possible on the final specialization
-            internal_assert(i == specializations.size());
-            Expr specialize_fail_error =
-                Internal::Call::make(Int(32),
-                                     "halide_error_specialize_fail",
-                                     {StringImm::make(s.failure_message)},
-                                     Internal::Call::Extern);
-            then_case = AssertStmt::make(const_false(), specialize_fail_error);
-        }
-        stmt = IfThenElse::make(c, then_case, stmt);
-    }
+    // TODO(tiramisu): Handle specializations
+    user_assert(def.specializations().empty())
+        << "Specialization is not currently supported by Tiramisu.\n";
 
     return stmt;
 }
 
 
-Stmt build_produce(Function f, const Target &t) {
+vector<string> produce_schedule(Function f, const Target &t) {
     if (f.has_extern_definition()) {
         // TODO(tiramisu): Handle extern definition. Need to take care of
         // buffer allocation, annotation, etc.
@@ -213,15 +188,14 @@ Stmt build_produce(Function f, const Target &t) {
                    << "which is not currently supported by Tiramisu.\n";
     } else {
         string prefix = f.name() + ".s0.";
-        vector<string> dims = f.args();
-        return build_provide_loop_nest(f.name(), prefix, dims, f.schedule(),
-                                       f.definition(), false, compile_to_tiramisu);
+        vector<string> dims = f.args(); // Pure dimensions
+        return provide_loop_nest_schedule(f.name(), prefix, dims, f.schedule(),
+                                          f.definition(), false);
     }
 }
 
 // Build the loop nests that update a function (assuming it's a reduction).
-vector<Stmt> build_update(Function f, bool compile_to_tiramisu) {
-
+vector<Stmt> update_schedule(Function f) {
     vector<Stmt> updates;
 
     for (size_t i = 0; i < f.updates().size(); i++) {
@@ -230,170 +204,46 @@ vector<Stmt> build_update(Function f, bool compile_to_tiramisu) {
         string prefix = f.name() + ".s" + std::to_string(i+1) + ".";
 
         vector<string> dims = f.args();
-        Stmt loop = build_provide_loop_nest(f.name(), prefix, dims, f.schedule(),
-                                            def, true, compile_to_tiramisu);
+        Stmt loop = provide_loop_nest_schedule(f.name(), prefix, dims, f.schedule(),
+                                               def, true);
         updates.push_back(loop);
     }
 
     return updates;
 }
 
-pair<Stmt, Stmt> build_production(Function func, const Target &target, bool compile_to_tiramisu) {
-    Stmt produce = build_produce(func, target, compile_to_tiramisu);
-    vector<Stmt> updates = build_update(func, compile_to_tiramisu);
+pair<Stmt, Stmt> production_schedule(Function func, const Target &target) {
+    Stmt produce = produce_schedule(func, target);
+    vector<Stmt> updates = update_schedule(func);
 
     // Combine the update steps
     Stmt merged_updates = Block::make(updates);
     return { produce, merged_updates };
 }
 
-// Inject the allocation and realization of a function into an
-// existing loop nest using its schedule
-class GetFuncSchedule : public IRVisitor {
-public:
-    const Function &func;
-    bool is_output;
-    const Target &target;
+vector<string> generate_func_tiramisu_schedule(const Function &f, bool is_output, const Target &target) {
 
-    GetFuncSchedule(const Function &f, bool o, const Target &t) :
-        func(f), is_output(o), target(t), ss(s) {}
+    const LoopLevel &compute_level = f.schedule().compute_level();
+    const LoopLevel &store_level = f.schedule().store_level();
 
-private:
+    // Generate tiramisu::computation including its schedule
+    pair<Stmt, Stmt> realization = production_schedule(f, target);
 
-    ostringstream ss;
-    string producing;
-
-    Stmt build_pipeline(Stmt consumer) { // tiramisu::computation (each definition will need its own computation)
-        pair<Stmt, Stmt> realization = build_production(func, target, compile_to_tiramisu);
-
-        Stmt producer;
-        if (realization.first.defined() && realization.second.defined()) {
-            producer = Block::make(realization.first, realization.second);
-        } else if (realization.first.defined()) {
-            producer = realization.first;
-        } else {
-            internal_assert(realization.second.defined());
-            producer = realization.second;
-        }
-        producer = ProducerConsumer::make_produce(func.name(), producer);
-
-        // Outputs don't have consume nodes
-        if (!is_output) {
-            consumer = ProducerConsumer::make_consume(func.name(), consumer);
+    // Generate tiramisu::buffer
+    if (!is_output) {
+        Region bounds;
+        string name = f.name();
+        const vector<string> func_args = f.args();
+        for (int i = 0; i < f.dimensions(); i++) {
+            const string &arg = func_args[i];
+            Expr min = Variable::make(Int(32), name + "." + arg + ".min_realized");
+            Expr extent = Variable::make(Int(32), name + "." + arg + ".extent_realized");
+            bounds.push_back(Range(min, extent));
         }
 
-        if (is_no_op(consumer)) {
-            // For the very first output to be scheduled, the consumer
-            // Stmt will be a no-op. No point in preserving it.
-            return producer;
-        } else {
-            return Block::make(producer, consumer);
-        }
+        s = Realize::make(name, f.output_types(), bounds, const_true(), s);
     }
-
-    Stmt build_realize(Stmt s) { // tiramisu::buffer
-        if (!is_output) {
-            Region bounds;
-            string name = func.name();
-            const vector<string> func_args = func.args();
-            for (int i = 0; i < func.dimensions(); i++) {
-                const string &arg = func_args[i];
-                Expr min = Variable::make(Int(32), name + "." + arg + ".min_realized");
-                Expr extent = Variable::make(Int(32), name + "." + arg + ".extent_realized");
-                bounds.push_back(Range(min, extent));
-            }
-
-            s = Realize::make(name, func.output_types(), bounds, const_true(), s);
-        }
-
-        // This is also the point at which we inject explicit bounds
-        // for this realization.
-        inject_explicit_bounds(s, func);
-    }
-
-    using IRVisitor::visit;
-
-    void visit(const For *for_loop) {
-        debug(3) << "InjectRealization of " << func.name() << " entering for loop over " << for_loop->name << "\n";
-        const LoopLevel &compute_level = func.schedule().compute_level();
-        const LoopLevel &store_level = func.schedule().store_level();
-
-        Stmt body = for_loop->body;
-
-        // Dig through any let statements
-        vector<pair<string, Expr>> lets;
-        while (const LetStmt *l = body.as<LetStmt>()) {
-            lets.push_back({ l->name, l->value });
-            body = l->body;
-        }
-
-        // Can't schedule extern things inside a vector for loop
-        if (func.has_extern_definition() &&
-            func.schedule().compute_level().is_inline() &&
-            for_loop->for_type == ForType::Vectorized &&
-            function_is_used_in_stmt(func, for_loop)) {
-
-            // If we're trying to inline an extern function, schedule it here and bail out
-            debug(2) << "Injecting realization of " << func.name() << " around node " << Stmt(for_loop) << "\n";
-            stmt = build_realize(build_pipeline(for_loop));
-            found_store_level = found_compute_level = true;
-            return;
-        }
-
-        body = mutate(body);
-
-        if (compute_level.match(for_loop->name)) {
-            debug(3) << "Found compute level\n";
-            if (function_is_used_in_stmt(func, body) || is_output) {
-                body = build_pipeline(body);
-            }
-            found_compute_level = true;
-        }
-
-        if (store_level.match(for_loop->name)) {
-            debug(3) << "Found store level\n";
-            internal_assert(found_compute_level)
-                << "The compute loop level was not found within the store loop level!\n";
-
-            if (function_is_used_in_stmt(func, body) || is_output) {
-                body = build_realize(body);
-            }
-
-            found_store_level = true;
-        }
-
-        // Reinstate the let statements
-        for (size_t i = lets.size(); i > 0; i--) {
-            body = LetStmt::make(lets[i - 1].first, lets[i - 1].second, body);
-        }
-
-        if (body.same_as(for_loop->body)) {
-            stmt = for_loop;
-        } else {
-            stmt = For::make(for_loop->name,
-                             for_loop->min,
-                             for_loop->extent,
-                             for_loop->for_type,
-                             for_loop->device_api,
-                             body);
-        }
-    }
-
-    // If we're an inline update or extern, we may need to inject a realization here
-    virtual void visit(const Provide *op) {
-        if (op->name != func.name() &&
-            !func.is_pure() &&
-            func.schedule().compute_level().is_inline() &&
-            function_is_used_in_stmt(func, op)) {
-
-            // Prefix all calls to func in op
-            stmt = build_realize(build_pipeline(op));
-            found_store_level = found_compute_level = true;
-        } else {
-            stmt = op;
-        }
-    }
-};
+}
 
 
 bool inline_functions_in_env(const vector<Function> &outputs,
@@ -436,8 +286,8 @@ bool inline_functions_in_env(const vector<Function> &outputs,
 
 map<string, vector<string>> schedule_functions_tiramisu(const vector<Function> &outputs,
                                                         const Target &target
-                                                        vector<string> &order,
-                                                        map<string, Function> &env) {
+                                                        vector<string> order,
+                                                        map<string, Function> env) {
 
     // Inline inlined functions into the functions definition and
     // remove the inlined functions from the environment and
@@ -463,8 +313,8 @@ map<string, vector<string>> schedule_functions_tiramisu(const vector<Function> &
 
         internal_assert(!f.can_be_inlined() || !f.schedule().compute_level().is_inline());
 
-        GetFuncSchedule func_sched(f, is_output, target);
-        func_sched.accept(&func_sched);
+        vector<string> f_schedule = generate_func_tiramisu_schedule(f, is_output, target);
+        schedules.emplace(f.name(), f_schedule);
     }
 
     return schedules;
