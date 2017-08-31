@@ -17,13 +17,6 @@ else()
   set(RUNTIME_DEBUG_FLAG "-g")
 endif()
 
-if (HALIDE_SHARED_LIBRARY)
-  add_definitions("-DHalide_SHARED")
-  set(HALIDE_LIBRARY_TYPE SHARED)
-else()
-  set(HALIDE_LIBRARY_TYPE STATIC)
-endif()
-
 set(RUNTIME_CPP
   aarch64_cpu_features
   android_clock
@@ -258,6 +251,8 @@ set(HEADER_FILES
   Argument.h
   AssociativeOpsTable.h
   Associativity.h
+  AutoSchedule.h
+  AutoScheduleUtils.h
   BoundaryConditions.h
   Bounds.h
   BoundsInference.h
@@ -354,6 +349,7 @@ set(HEADER_FILES
   Random.h
   RealizationOrder.h
   Reduction.h
+  RegionCosts.h
   RemoveDeadAllocations.h
   RemoveTrivialForLoops.h
   RemoveUndef.h
@@ -411,6 +407,8 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   ApplySplit.cpp
   AssociativeOpsTable.cpp
   Associativity.cpp
+  AutoSchedule.cpp
+  AutoScheduleUtils.cpp
   BoundaryConditions.cpp
   Bounds.cpp
   BoundsInference.cpp
@@ -498,6 +496,7 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   Random.cpp
   RealizationOrder.cpp
   Reduction.cpp
+  RegionCosts.cpp
   RemoveDeadAllocations.cpp
   RemoveTrivialForLoops.cpp
   RemoveUndef.cpp
@@ -534,6 +533,8 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   ${HEADER_FILES}
   ${INITIAL_MODULES}
 )
+# Define Halide_SHARED or Halide_STATIC depending on library type
+target_compile_definitions(Halide PRIVATE "-DHalide_${HALIDE_LIBRARY_TYPE}")
 
 if (WIN32 AND NOT MSVC)
   set_target_properties(Halide PROPERTIES LINK_FLAGS "-Wl,--export-all-symbols")
