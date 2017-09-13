@@ -114,7 +114,7 @@ HEXAGON_CXX_FLAGS=$(if $(WITH_HEXAGON), -DWITH_HEXAGON=1, )
 HEXAGON_LLVM_CONFIG_LIB=$(if $(WITH_HEXAGON), hexagon, )
 
 CXX_WARNING_FLAGS = -Wall -Werror -Wno-unused-function -Wcast-qual -Wignored-qualifiers -Wno-comment -Wsign-compare -Wno-unknown-warning-option -Wno-psabi
-CXX_FLAGS = $(CXX_WARNING_FLAGS) -fno-rtti -Woverloaded-virtual $(FPIC) $(OPTIMIZE) -fno-omit-frame-pointer -DCOMPILING_HALIDE
+CXX_FLAGS = $(CXX_WARNING_FLAGS) -fno-rtti -Woverloaded-virtual $(FPIC) $(OPTIMIZE) -fno-omit-frame-pointer -DCOMPILING_HALIDE -fvisibility=hidden
 
 CXX_FLAGS += $(LLVM_CXX_FLAGS)
 CXX_FLAGS += $(PTX_CXX_FLAGS)
@@ -565,6 +565,7 @@ RUNTIME_CPP_COMPONENTS = \
   float16_t \
   gcd_thread_pool \
   gpu_device_selection \
+  hexagon_cpu_features \
   hexagon_host \
   ios_io \
   linux_clock \
@@ -1442,6 +1443,7 @@ test_apps: $(LIB_DIR)/libHalide.a $(BIN_DIR)/libHalide.$(SHARED_EXT) $(INCLUDE_D
 	        $(ROOT_DIR)/apps/HelloMatlab \
 	        $(ROOT_DIR)/apps/fft \
 	        $(ROOT_DIR)/apps/linear_algebra \
+	        $(ROOT_DIR)/apps/resize \
 	        $(ROOT_DIR)/apps/images \
 	        $(ROOT_DIR)/apps/support \
                 apps; \
@@ -1475,6 +1477,8 @@ test_apps: $(LIB_DIR)/libHalide.a $(BIN_DIR)/libHalide.$(SHARED_EXT) $(INCLUDE_D
 	  make -C apps/linear_algebra clean HALIDE_BIN_PATH=$(CURDIR) HALIDE_SRC_PATH=$(ROOT_DIR) ; \
 	  make -C apps/linear_algebra test HALIDE_BIN_PATH=$(CURDIR) HALIDE_SRC_PATH=$(ROOT_DIR) ; \
 	fi
+	make -C apps/resize clean  HALIDE_BIN_PATH=$(CURDIR) HALIDE_SRC_PATH=$(ROOT_DIR)
+	make -C apps/resize all  HALIDE_BIN_PATH=$(CURDIR) HALIDE_SRC_PATH=$(ROOT_DIR)
 
 # Bazel depends on the distrib archive being built
 .PHONY: test_bazel

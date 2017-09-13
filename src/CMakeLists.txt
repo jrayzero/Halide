@@ -1,14 +1,5 @@
 include(CheckCXXCompilerFlag)
 
-add_executable(build_halide_h ../tools/build_halide_h.cpp)
-add_executable(binary2cpp ../tools/binary2cpp.cpp)
-
-if (MSVC)
-  # disable irrelevant warnings
-  target_compile_options(build_halide_h PUBLIC /wd4996)
-  target_compile_options(binary2cpp PUBLIC /wd4996)
-endif()
-
 if (MSVC)
   # -g produces dwarf debugging info, which is not useful on windows
   #  (and fails to compile due to llvm bug 15393)
@@ -36,6 +27,7 @@ set(RUNTIME_CPP
   float16_t
   gcd_thread_pool
   gpu_device_selection
+  hexagon_cpu_features
   hexagon_host
   ios_io
   linux_clock
@@ -535,6 +527,14 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
 )
 # Define Halide_SHARED or Halide_STATIC depending on library type
 target_compile_definitions(Halide PRIVATE "-DHalide_${HALIDE_LIBRARY_TYPE}")
+# Default to not exporting symbols from libHalide
+set_target_properties(Halide PROPERTIES CXX_VISIBILITY_PRESET hidden)
+set_target_properties(Halide PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
+# Ensure that these tools are build first
+add_dependencies(Halide
+  binary2cpp
+  build_halide_h
+)
 
 if (WIN32 AND NOT MSVC)
   set_target_properties(Halide PROPERTIES LINK_FLAGS "-Wl,--export-all-symbols")
@@ -653,8 +653,3 @@ if (NOT MSVC)
   string(REPLACE " " "" EXTRA_LIBS "${EXTRA_LIBS}")
   target_link_libraries(Halide PUBLIC ${EXTRA_LIBS})
 endif()
-
-add_dependencies(Halide
-  binary2cpp
-  build_halide_h
-)
