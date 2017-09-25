@@ -158,7 +158,7 @@ protected:
 };
 
 /**
- * Dump an HTML-formatted print of a Stmt to 'dest'.
+ * Dump an Tiramisu-formatted print of a Stmt to 'dest'.
  */
 EXPORT void print_to_tiramisu(
     Stmt s, std::ostream &dest,

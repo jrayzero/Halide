@@ -318,58 +318,9 @@ void Pipeline::compile_to_tiramisu(const string &filename,
         }
     }
 
-    /*vector<Argument> public_args = build_public_args(args, target);
-    vector<Buffer<>> global_images = validate_arguments(public_args, body);
-
-    for (Buffer<> buf : global_images) {
-        inputs.push_back(buf.name());
-        input_buffer_types.push_back(buf.type());
-        vector<int32_t> buffer_extents;
-        for (int i = 0; i < buf.dimensions(); ++i) {
-            Expr min_expr = buf.dim(i).min();
-            Expr extent_expr = buf.dim(i).extent();
-            const IntImm *min = min_expr.as<IntImm>();
-            const IntImm *extent = extent_expr.as<IntImm>();
-            internal_assert((min != nullptr) && (extent != nullptr));
-            internal_assert(min->value == 0);
-            internal_assert(extent->value > 0);
-            buffer_extents.push_back(extent->value);
-        }
-        input_buffer_extents.push_back(buffer_extents);
-    }
-
-    for (const Argument &arg : public_args) {
-        if (arg.is_buffer()) {
-            if (arg.is_input()) {
-                inputs.push_back(arg.name);
-                input_buffer_types.push_back(arg.type);
-                vector<int32_t> buffer_extents;
-                for (int i = 0; i < arg.dimensions; ++i) {
-                    // Just use some random value since it's going to be replaced anyway
-                    buffer_extents.push_back(1024);
-                }
-                input_buffer_extents.push_back(buffer_extents);
-            } else {
-                internal_assert(arg.is_output());
-                outputs.push_back(arg.name);
-                output_buffer_types.push_back(arg.type);
-                vector<int32_t> buffer_extents;
-                for (int i = 0; i < arg.dimensions; ++i) {
-                    // Just use some random value since it's going to be replaced anyway
-                    buffer_extents.push_back(1024);
-                }
-                output_buffer_extents.push_back(buffer_extents);
-            }
-        } else {
-            input_params.push_back(arg.name);
-            input_param_types.push_back(arg.type);
-        }
-    }*/
-
     internal_assert(contents->outputs.size() == outputs.size());
     internal_assert(contents->outputs.size() == output_buffer_types.size());
     internal_assert(contents->outputs.size() == output_buffer_extents.size());
-
 
     std::ostringstream stream;
     Internal::print_to_tiramisu(body, stream, fn_name, contents->outputs,

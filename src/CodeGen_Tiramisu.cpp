@@ -53,7 +53,8 @@ std::string to_string(const std::vector<T>& v) {
 
 string CodeGen_Tiramisu::print(Expr e) {
     internal_assert(e.defined()) << "CodeGen_Tiramisu can't convert undefined expr.\n";
-    // For now, substitute in all lets to make life easier (does not substitute in lets in stmt though)
+    // For now, substitute in all lets to make life easier (this does not
+    // substitute in lets in stmt however)
     e = substitute_in_all_lets(e);
     e.accept(this);
     return expr;
@@ -61,7 +62,8 @@ string CodeGen_Tiramisu::print(Expr e) {
 
 void CodeGen_Tiramisu::print(Stmt s) {
     internal_assert(s.defined()) << "CodeGen_Tiramisu can't convert undefined stmt.\n";
-    // For now, substitute in all lets to make life easier (does not substitute in lets in stmt though)
+    // For now, substitute in all lets to make life easier (this does not
+    // substitute in lets in stmt however)
     s = substitute_in_all_lets(s);
     s.accept(this);
 }
@@ -303,7 +305,6 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
             sizes << "tiramisu::expr(" << extent_str << ")";
             // TODO(tiramisu): Assume "min" always starts from 0 for now
             scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
-            //scope.push_back(std::make_pair(extent_str, make_const(Int(32), buffer_extents[i])));
             if (i != 0) {
                 sizes << ", ";
             }
@@ -663,15 +664,15 @@ void CodeGen_Tiramisu::visit(const Prefetch *op) {
 }
 
 void CodeGen_Tiramisu::visit(const Load *op) {
-    user_error << "Should pass the unflatten version of Load (in the form of Call node) to Tiramisu\n.\n";
+    user_error << "Should pass the unflattened version of Load (in the form of Call node) to Tiramisu\n.\n";
 }
 
 void CodeGen_Tiramisu::visit(const Store *op) {
-    user_error << "Should pass the unflatten version of Store (in the form of Provide node) to Tiramisu\n.\n";
+    user_error << "Should pass the unflattened version of Store (in the form of Provide node) to Tiramisu\n.\n";
 }
 
 void CodeGen_Tiramisu::visit(const Allocate *op) {
-    user_error << "Should pass the unflatten version of Allocate (in the form of Realize node) to Tiramisu\n.\n";
+    user_error << "Should pass the unflattened version of Allocate (in the form of Realize node) to Tiramisu\n.\n";
 }
 
 void CodeGen_Tiramisu::visit(const IntImm *op) {
@@ -953,7 +954,7 @@ void CodeGen_Tiramisu::visit(const For *op) {
     for (size_t i = 1; i < v.size() - 1; ++i) {
         if (v[i].substr(0, 1) == "s") {
             string str = v[i].substr(1, v[i].size() - 1);
-            bool has_only_digits = (str.find_first_not_of( "0123456789" ) == string::npos);
+            bool has_only_digits = (str.find_first_not_of("0123456789") == string::npos);
             if (has_only_digits) {
                 producer_stage = atoi(str.c_str());
             }
@@ -969,7 +970,7 @@ void CodeGen_Tiramisu::visit(const For *op) {
     internal_assert(extent != NULL) << "Extent of a loop should have been a variable.\n";
 
     Expr min_val;
-    for (int i = scope.size() - 1; i >= 0; --i) {
+    for (int i = (int)scope.size() - 1; i >= 0; --i) {
         if (scope[i].first == min->name) {
             min_val = scope[i].second;
             break;
@@ -978,7 +979,7 @@ void CodeGen_Tiramisu::visit(const For *op) {
     internal_assert(min_val.defined()) << "min->name: " << min->name << "\n";
 
     Expr extent_val;
-    for (int i = scope.size() - 1; i >= 0; --i) {
+    for (int i = (int)scope.size() - 1; i >= 0; --i) {
         if (scope[i].first == extent->name) {
             extent_val = scope[i].second;
             break;
@@ -1005,9 +1006,10 @@ void CodeGen_Tiramisu::visit(const For *op) {
 }
 
 void CodeGen_Tiramisu::visit(const Evaluate *op) {
-    // TODO(tiramisu): do nothing for now
+    // TODO(tiramisu): Do nothing for now
 }
 
+// Multi-dimensional store
 void CodeGen_Tiramisu::visit(const Provide *op) {
     int stage = get_current_stage();
     string name = print_name(op->name + ".s" + std::to_string(stage));
@@ -1082,7 +1084,7 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
 }
 
 Expr CodeGen_Tiramisu::substitute_in_scope(Expr expr) const {
-    for (int i = scope.size() - 1; i >= 0; --i) {
+    for (int i = (int)scope.size() - 1; i >= 0; --i) {
         expr = substitute(scope[i].first, scope[i].second, expr);
     }
     return simplify(expr);
@@ -1121,11 +1123,9 @@ void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
     }
 
     // Create a temporary buffer
-
     string buffer_name = "buff_" + name;
     stream << do_indent();
-    stream << "tiramisu::buffer " << buffer_name << "(\"" << buffer_name << "\", "
-           << bounds.size() << ", ";
+    stream << "tiramisu::buffer " << buffer_name << "(\"" << buffer_name << "\", ";
 
     stream << "{";
     for (size_t i = 0; i < bounds.size(); ++i) {
@@ -1136,7 +1136,7 @@ void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
     }
     stream << "}, ";
 
-    stream << halide_type_to_tiramisu_type_str(op->types[0]) << ", NULL, tiramisu::a_temporary, "
+    stream << halide_type_to_tiramisu_type_str(op->types[0]) << ", tiramisu::a_temporary, "
            << "&" << pipeline << ");\n";
 
     temporary_buffers.insert(buffer_name);
@@ -1144,7 +1144,6 @@ void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
 
 void CodeGen_Tiramisu::visit(const Realize *op) {
     // TODO(tiramisu): We will ignore the condition on the Realize node for now.
-
     stream << "\n";
     stream << do_indent();
     stream << "// Define temporary buffers for \"" << print_name(op->name) << "\".\n";
@@ -1178,11 +1177,11 @@ void CodeGen_Tiramisu::visit(const Call *op) {
         ss << ')';
     } else {
         user_assert((op->call_type == Call::CallType::Halide) || (op->call_type == Call::CallType::Image))
-            << "Only handle call to halide func or image for now.\n"
-            << Expr(op) << "\n"
-            << "is pure? " << op->is_pure() << "\n";
+            << "Only handle call to halide func or image for now.\n";
 
-        //TODO(tiramisu): need to normalize the index
+        // TODO(psuriana): FIX THIS
+
+        //TODO(tiramisu): Need to normalize the index
         vector<Expr> normalized_args;
         for (int i = op->args.size()-1; i >= 0; --i) {
             Expr arg = op->args[i];
@@ -1221,7 +1220,6 @@ void CodeGen_Tiramisu::visit(const Call *op) {
                     normalized_args.push_back(var - 1);
                 }
             }
-
         } else {
             call_name = print_name(op->name);
         }
@@ -1246,7 +1244,6 @@ void CodeGen_Tiramisu::visit(const Block *op) {
 }
 
 void CodeGen_Tiramisu::test() {
-
     std::cout << "CodeGen_Tiramisu test passed\n";
 }
 
