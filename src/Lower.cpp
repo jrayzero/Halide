@@ -190,11 +190,13 @@ Module lower(const vector<Function> &output_funcs, const string &pipeline_name, 
         debug(1) << "Injecting debug_to_file calls...\n";
         s = debug_to_file(s, outputs, env);
         debug(2) << "Lowering after injecting debug_to_file calls:\n" << s << '\n';
+    }
 
-        debug(1) << "Simplifying...\n"; // without removing dead lets, because storage flattening needs the strides
-        s = simplify(s, false);
-        debug(2) << "Lowering after first simplification:\n" << s << "\n\n";
+    debug(1) << "Simplifying...\n"; // without removing dead lets, because storage flattening needs the strides
+    s = simplify(s, false);
+    debug(2) << "Lowering after first simplification:\n" << s << "\n\n";
 
+    if (!compile_to_tiramisu) {
         debug(1) << "Injecting prefetches...\n";
         s = inject_prefetch(s, env);
         debug(2) << "Lowering after injecting prefetches:\n" << s << "\n\n";
@@ -254,13 +256,13 @@ Module lower(const vector<Function> &output_funcs, const string &pipeline_name, 
         }
     }
 
-    debug(1) << "Simplifying...\n";
-    s = simplify(s);
-    s = unify_duplicate_lets(s);
-    s = remove_trivial_for_loops(s);
-    debug(2) << "Lowering after second simplifcation:\n" << s << "\n\n";
+    if (!compile_to_tiramisu) {
+        debug(1) << "Simplifying...\n";
+        s = simplify(s);
+        s = unify_duplicate_lets(s);
+        s = remove_trivial_for_loops(s);
+        debug(2) << "Lowering after second simplifcation:\n" << s << "\n\n";
 
-    if (compile_to_tiramisu) {
         debug(1) << "Reduce prefetch dimension...\n";
         s = reduce_prefetch_dimension(s, t);
         debug(2) << "Lowering after reduce prefetch dimension:\n" << s << "\n";
@@ -323,12 +325,12 @@ Module lower(const vector<Function> &output_funcs, const string &pipeline_name, 
     // TODO(tiramisu): Tiramisu should have done this instead, but we'll use
     // Halide pass for now to remove the dead allocations.
     s = remove_dead_allocations(s);
-
     s = remove_trivial_for_loops(s);
-    s = simplify(s);
-    debug(1) << "Lowering after final simplification:\n" << s << "\n\n";
 
     if (!compile_to_tiramisu) {
+        s = simplify(s);
+        debug(1) << "Lowering after final simplification:\n" << s << "\n\n";
+
         debug(1) << "Splitting off Hexagon offload...\n";
         s = inject_hexagon_rpc(s, t, result_module);
         debug(2) << "Lowering after splitting off Hexagon offload:\n" << s << '\n';

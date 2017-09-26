@@ -303,8 +303,10 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
             stream << "int " << extent_str << " = " << buffer_extents[i] << ";\n";
 
             sizes << "tiramisu::expr(" << extent_str << ")";
-            // TODO(tiramisu): Assume "min" always starts from 0 for now
+            // TODO(tiramisu): Assume "min" always starts from 0 for now. Pick
+            // random value for the extent.
             scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
+            scope.push_back(std::make_pair(extent_str, make_const(Int(32), 10)));
             if (i != 0) {
                 sizes << ", ";
             }
