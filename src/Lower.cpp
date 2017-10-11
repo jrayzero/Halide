@@ -70,6 +70,7 @@ using std::ostringstream;
 using std::string;
 using std::vector;
 using std::map;
+using std::pair;
 
 Module lower(const vector<Function> &output_funcs, const string &pipeline_name, const Target &t,
              const vector<Argument> &args, const Internal::LoweredFunc::LinkageType linkage_type,
@@ -99,6 +100,40 @@ Module lower(const vector<Function> &output_funcs, const string &pipeline_name, 
     // Ensure that all ScheduleParams become well-defined constant Exprs.
     for (auto &f : env) {
         f.second.substitute_schedule_param_exprs();
+    }
+
+    map<pair<string, int>, vector<Dim>> old_dim_list;
+    if (compile_to_tiramisu) {
+        // We need to refresh the dim list since if split(), etc., are appplied
+        // to the function, they mess up the dim list and create invalide
+        // loops during schedule_functions.
+        for (auto &iter : env) {
+            Function func = iter.second;
+            for (int i = 0; i < (int)func.updates().size() + 1; ++i) {
+                Definition def = (i == 0) ? func.definition() : func.updates()[i-1];
+
+                vector<Dim> old_dims = def.schedule().dims();
+                old_dim_list.emplace(std::make_pair(func.name(), i), old_dims);
+
+                // TODO(tiramisu): How to handle reordering with splits?
+                vector<Dim> new_dims;
+                set<string> seen_dims;
+                for (int i = 0; i < (int)old_dims.size() - 1; ++i) {
+                    Dim d = old_dims[i];
+                    vector<string> v = split_string(d.var, ".");
+                    internal_assert(!v.empty());
+                    if (!seen_dims.count(v[0])) {
+                        d.var = v[0];
+                        new_dims.push_back(d);
+                        seen_dims.insert(d.var);
+                    }
+                }
+
+                // Add the __outermost dimension
+                new_dims.push_back(old_dims[old_dims.size()-1]);
+                def.schedule().dims() = new_dims;
+            }
+        }
     }
 
     // Substitute in wrapper Funcs
@@ -168,6 +203,16 @@ Module lower(const vector<Function> &output_funcs, const string &pipeline_name, 
     debug(1) << "Performing allocation bounds inference...\n";
     s = allocation_bounds_inference(s, env, func_bounds);
     debug(2) << "Lowering after allocation bounds inference:\n" << s << '\n';
+
+    if (compile_to_tiramisu) {
+        for (auto &iter : env) {
+            Function func = iter.second;
+            for (int i = 0; i < (int)func.updates().size() + 1; ++i) {
+                Definition def = (i == 0) ? func.definition() : func.updates()[i-1];
+                def.schedule().dims() = old_dim_list[std::make_pair(func.name(), i)];
+            }
+        }
+    }
 
     debug(1) << "Removing code that depends on undef values...\n";
     s = remove_undef(s);
@@ -325,9 +370,9 @@ Module lower(const vector<Function> &output_funcs, const string &pipeline_name, 
     // TODO(tiramisu): Tiramisu should have done this instead, but we'll use
     // Halide pass for now to remove the dead allocations.
     s = remove_dead_allocations(s);
-    s = remove_trivial_for_loops(s);
 
     if (!compile_to_tiramisu) {
+        s = remove_trivial_for_loops(s);
         s = simplify(s);
         debug(1) << "Lowering after final simplification:\n" << s << "\n\n";
 

@@ -38,12 +38,12 @@ const int tab_size = 4;
 } // anonymous namespace
 
 template<typename T>
-std::string to_string(const std::vector<T>& v) {
+std::string to_string(const std::vector<T> &v) {
     std::ostringstream ss;
     ss << "[";
-    for (size_t i = 0; i < v.size(); ++i) {
+    for (int i = 0; i < (int)v.size(); ++i) {
         ss << v[i];
-        if (i != v.size() - 1) {
+        if (i != (int)v.size() - 1) {
             ss << ", ";
         }
     }
@@ -228,6 +228,62 @@ Stmt normalize_variable_names(Stmt s) {
     return NormalizeVariableNames().mutate(s);
 }
 
+// Find out the number instances of a particular producer (compute_at usually
+// causes a producer to be recomputed multiple times)
+class FindComputations : public IRVisitor {
+private:
+    Expr predicate = const_true();
+    // Stage -> loop dimensions
+    map<int, Stage> stages;
+    /*string current_func = "";
+    int current_stage = -1;*/
+public:
+    map<string, vector<Computation>> computations;
+
+    using IRVisitor::visit;
+
+    void visit(const ProducerConsumer *op) {
+        IRVisitor::visit(op);
+        if (op->is_producer) {
+            computations[op->name].push_back({op->name, stages});
+            predicate = const_true();
+            stages.clear();
+        }
+    }
+
+    void visit(const For *op) {
+        vector<string> v = split_string(op->name, "_");
+        internal_assert((v.size() > 2) && (!v[0].empty()) && (!v[v.size()-1].empty()));
+        string func_name = v[0];
+        string var = v[v.size()-1];
+
+        int producer_stage = -1;
+        for (size_t i = 1; i < v.size() - 1; ++i) {
+            if (v[i].substr(0, 1) == "s") {
+                string str = v[i].substr(1, v[i].size() - 1);
+                bool has_only_digits = (str.find_first_not_of("0123456789") == string::npos);
+                if (has_only_digits) {
+                    producer_stage = atoi(str.c_str());
+                }
+            }
+        }
+        internal_assert(producer_stage >= 0);
+
+        LoopDim dim = {op->name, op->min, op->extent, func_name, producer_stage, var};
+        Stage &stage = stages[producer_stage];
+        stage.stage = producer_stage;
+        stage.dims.push_back(dim);
+
+        IRVisitor::visit(op);
+    }
+};
+
+map<string, vector<Computation>> get_computations(Stmt s) {
+    FindComputations finder;
+    s.accept(&finder);
+    return finder.computations;
+}
+
 } // anonymous namespace
 
 CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
@@ -240,9 +296,10 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
                                    const vector<string> &input_params,
                                    const vector<Type> &input_param_types,
                                    const vector<string> &order,
-                                   const map<string, Function> &env)
-        : stream(dest), indent(0), pipeline(pipeline_name), order(order), env(env), loop_depth(0),
-          current_computation("") {
+                                   const map<string, Function> &env,
+                                   const map<pair<string, int>, vector<Dim>> &original_dim_list)
+        : stream(dest), indent(0), pipeline(pipeline_name), order(order), env(env),
+          original_dim_list(original_dim_list), current_computation("") {
 
     internal_assert(outputs.size() == output_buffer_extents.size());
     internal_assert(output_buffer_extents.size() == output_buffer_types.size());
@@ -409,84 +466,136 @@ int get_dim_index(const vector<string> &dims, const string &var) {
 
 } // anonymous namespace
 
-void CodeGen_Tiramisu::generate_split_schedule(const Function &func, int stage,
-                                               const Split &split, vector<string> &dims) {
+void CodeGen_Tiramisu::generate_stage_schedule(const Function &func, int stage,
+                                               const StageSchedule &schedule,
+                                               set<string> &vars,
+                                               std::ostream &sched_ss) {
+    string func_name = print_name(func.name() + ".s" + std::to_string(stage));
+
     // TODO(tiramisu): Rename and Fuse are not currently supported by Tiramisu,
     // so throw an error for now
-    if (split.is_split()) {
-        int old_idx = get_dim_index(dims, split.old_var);
-
-        debug(0) << "Splitting " << func.name() << "." << split.old_var << "(" << old_idx << ")\n";
-        stream << do_indent();
-        stream << func.name() << ".split(" << std::to_string(old_idx) << ", "
-               << split.factor << ");\n";
-
-        // Update the 'dims' list to keep track of the new dim indices
-        string old_name = dims[old_idx];
-        dims.insert(dims.begin() + old_idx, dims[old_idx]);
-        dims[old_idx] = old_name + "." + split.inner;
-        dims[old_idx+1] = old_name + "." + split.outer;
-
-        // TODO(tiramisu): Check if this split is because of vectorize / tile
-        // TODO(tiramisu): Check for reorder
-
-        // TODO(tiramisu): Currently Tiramisu ignores the split strategy and
-        // uses whatever the default is in
-    } else if (split.is_fuse()) {
-        user_error << "Fuse is not currently supported by Tiramisu\n";
-    } else if (split.is_rename()) {
-        user_error << "Rename is not currently supported by Tiramisu\n";
-    }
-    // Do nothing for purify
-}
-
-void CodeGen_Tiramisu::generate_schedule(const Function &func, int stage,
-                                         const StageSchedule &schedule, size_t order_index) {
-    string name = print_name(func.name() + ".s" + std::to_string(stage));
-
-
-    // Add split schedule
-    vector<string> dims = func.args();
+    set<string> vectorized_dims;
+    set<string> unrolled_dims;
     for (const Split &split : schedule.splits()) {
-        generate_split_schedule(func, stage, split, dims);
-    }
+        if (split.is_split()) {
+            // TODO(tiramisu): Currently Tiramisu ignores the split strategy and
+            // uses whatever the default is in
 
-    // Tag any parallel dimensions
-    int dim_size = (int)schedule.dims().size() - 1; // Ignore __outermost
-    for (int i = 0; i < dim_size; ++i) {
-        const Dim &d = schedule.dims()[i];
-        if (d.for_type == ForType::Parallel) {
-            debug(5) << "...Parallelize " << name << "." << d.var << " at index " << i << "\n";
-            stream << do_indent();
-            stream << name << ".tag_parallel_level(" << std::to_string(dim_size - i - 1) << ");\n";
-        } else if (d.for_type == ForType::Vectorized) {
-            internal_error << "Does not currently support vectorization\n";
-            // TODO(tiramisu): need to get the vectorize width from the split schedule
-            /*debug(5) << "...Vectorize " << name << "." << d.var << "\n";
-            stream << do_indent();
-            stream << name << ".vectorize(" << std::to_string(dim_size - i) << ");\n";*/
-        } else {
-            internal_assert(d.for_type == ForType::Serial)
-                << "Can only emit serial/parallel/vectorized for loops to Tiramisu\n";
+            string old_var = print_name(func_name + "." + split.old_var);
+            string outer = print_name(func_name + "." + split.outer);
+            string inner = print_name(func_name + "." + split.inner);
+            vars.insert(old_var);
+            vars.insert(outer);
+            vars.insert(inner);
+
+            debug(5) << "Splitting " << old_var << " into " << outer << " and " << inner << "\n";
+            sched_ss << do_indent();
+            sched_ss << func_name << ".split(" << old_var << ", " << split.factor
+                     << ", " << outer << ", " << inner << ");\n";
+
+            // Check if this is a split because of vectorization/unrolling
+            const auto &dim_iter =
+                std::find_if(schedule.dims().begin(), schedule.dims().end(),
+                    [&split](const Dim &d) { return (split.inner == d.var); });
+            internal_assert(dim_iter != schedule.dims().end());
+
+            if (dim_iter->for_type == ForType::Vectorized) {
+                debug(5) << "...Vectorize " << inner << "\n";
+                sched_ss << do_indent();
+                sched_ss << func_name << ".tag_vector_level(" << inner << ", "
+                         << split.factor << ");\n";
+                vectorized_dims.insert(inner);
+            } else if (dim_iter->for_type == ForType::Unrolled) {
+                debug(5) << "...Unroll " << inner << "\n";
+                sched_ss << do_indent();
+                sched_ss << func_name << ".tag_unroll_level(" << inner << ");\n";
+                unrolled_dims.insert(inner);
+            }
+        } else if (split.is_fuse()) {
+            user_error << "Fuse is not currently supported by Tiramisu\n";
+        } else if (split.is_rename()) {
+            user_error << "Rename is not currently supported by Tiramisu\n";
         }
     }
 
-    // TODO(tiramisu): Add GPU schedules
-    // TODO(tiramisu): Handle update definition
+    vector<string> gpu_blocks, gpu_threads; // From outermost to innermost dims
+    for (int i = (int)schedule.dims().size() - 2; i >= 0; --i) { // Ignore __outermost
+        const Dim &d = schedule.dims()[i];
+        string d_name = print_name(func_name + "." + d.var);
+        if (d.for_type == ForType::Parallel) {
+            vars.insert(d_name);
+            debug(5) << "...Parallelize " << d_name << "\n";
+            sched_ss << do_indent();
+            sched_ss << func_name << ".tag_parallel_level(" << d_name << ");\n";
+        } else if (d.for_type == ForType::Vectorized) {
+            // Make sure that this is already handled when processing the
+            // split list
+            internal_assert(vectorized_dims.count(d_name));
+        } else if (d.for_type == ForType::Unrolled) {
+            // Make sure that this is already handled when processing the
+            // split list
+            internal_assert(unrolled_dims.count(d_name));
+        } else if (d.for_type == ForType::GPUBlock) {
+            gpu_blocks.push_back(d_name);
+        } else if (d.for_type == ForType::GPUThread) {
+            gpu_threads.push_back(d_name);
+        } else {
+            internal_assert(d.for_type == ForType::Serial) << "Unknown ForType\n";
+        }
+    }
+    internal_assert(gpu_blocks.size() <= 3 && gpu_threads.size() <= 3);
+    internal_assert(gpu_blocks.size() == gpu_threads.size());
+
+    // Add GPU schedules
+    if (!gpu_blocks.empty()) {
+        debug(5) << "...GPU tile blocks: " << to_string(gpu_blocks) << ", threads: "
+                 << to_string(gpu_threads) << "\n";
+        sched_ss << do_indent();
+        sched_ss << func_name << ".tag_gpu_level(";
+        for (int i = 0; i < (int)gpu_blocks.size(); ++i) {
+            sched_ss << gpu_blocks[i] << ", ";
+        }
+        for (int i = 0; i < (int)gpu_threads.size(); ++i) {
+            sched_ss << gpu_threads[i];
+            if (i < (int)gpu_threads.size() - 1) {
+                sched_ss << ", ";
+            }
+        }
+        sched_ss << ");\n";
+    }
 }
 
 void CodeGen_Tiramisu::generate_schedules() {
     internal_assert(!order.empty());
-    stream << "\n";
-    stream << do_indent();
-    stream << "// Add schedules.\n";
+
+    set<string> vars;
+    ostringstream sched_ss;
+
     for (size_t i = 0; i < order.size(); ++i) {
         const string &func_name = order[i];
         internal_assert(env.count(func_name));
         const Function &func = env.find(func_name)->second;
+        for (int j = 0; j < (int)func.updates().size() + 1; ++j) {
+            const Definition &def = (j == 0) ? func.definition() : func.updates()[j-1];
+            generate_stage_schedule(func, j, def.schedule(), vars, sched_ss);
+        }
+    }
 
-        // TODO(tiramisu): schedule the update definition as well
-        generate_schedule(func, 0, func.definition().schedule(), i);
+    if (!vars.empty()) {
+        stream << "\n";
+        stream << do_indent();
+        stream << "// Declare vars.\n";
+        for (const string &v : vars) {
+            stream << do_indent();
+            stream << "tiramisu::var " << v << "(\"" << v << "\")\n";
+        }
+    }
+
+    if (!sched_ss.str().empty()) {
+        stream << "\n";
+        stream << do_indent();
+        stream << "// Add schedules.\n";
+        stream << sched_ss.str();
     }
 }
 
@@ -562,40 +671,31 @@ void CodeGen_Tiramisu::pop_loop_dim() {
 
 string CodeGen_Tiramisu::get_current_func_name() const {
     internal_assert(!loop_dims.empty());
-    return loop_dims[loop_dims.size()-1].func;
+    return loop_dims[(int)loop_dims.size()-1].func;
 }
 
 int CodeGen_Tiramisu::get_current_stage() const {
     internal_assert(!loop_dims.empty());
-    return loop_dims[loop_dims.size()-1].stage;
+    return loop_dims[(int)loop_dims.size()-1].stage;
+}
+
+string CodeGen_Tiramisu::get_current_dim() const {
+    internal_assert(!loop_dims.empty());
+    return loop_dims[(int)loop_dims.size()-1].loop_name;
 }
 
 vector<string> CodeGen_Tiramisu::get_stage_dims(const string &name, int stage, bool ignore_rvar) const {
-    internal_assert(env.count(name));
-    const Function &func = env.find(name)->second;
-    const StageSchedule &schedule = (stage == 0) ? func.definition().schedule() : func.update(stage-1).schedule();
-    const vector<Dim> &dims = schedule.dims();
-
-    vector<string> dim_str;
-    // Ignore __outermost
-    for (int i = dims.size()-2; i >= 0; --i) {
-        if (ignore_rvar && dims[i].is_rvar()) {
-            continue;
-        }
-        dim_str.push_back(print_name(name + ".s" + std::to_string(stage) + "." + dims[i].var));
+    vector<string> dim_str; // From outermost to innermost
+    for (size_t i = 0; i < loop_dims.size(); ++i) {
+        dim_str.push_back(loop_dims[i].loop_name);
     }
     return dim_str;
 }
 
 vector<string> CodeGen_Tiramisu::get_stage_rvars(const string &name, int stage) const {
-    internal_assert(env.count(name));
-    const Function &func = env.find(name)->second;
-    const StageSchedule &schedule = (stage == 0) ? func.definition().schedule() : func.update(stage-1).schedule();
-    const vector<Dim> &dims = schedule.dims();
-
     vector<string> dim_str;
-    // Ignore __outermost
-    for (int i = dims.size()-2; i >= 0; --i) {
+    const vector<Dim> &dims = original_dim_list.at(std::make_pair(name, stage));
+    for (int i = dims.size()-2; i >= 0; --i) { // Ignore __outermost
         if (dims[i].is_rvar()) {
             dim_str.push_back(print_name(name + ".s" + std::to_string(stage) + "." + dims[i].var));
         }
@@ -603,7 +703,7 @@ vector<string> CodeGen_Tiramisu::get_stage_rvars(const string &name, int stage) 
     return dim_str;
 }
 
-// Return str representation of all symbolic loop bounds
+// Return a string representation of all symbolic loop bounds
 string CodeGen_Tiramisu::get_loop_bound_vars() const {
     vector<Expr> relevant_exprs;
     for (size_t i = 0; i < loop_dims.size(); ++i) {
@@ -623,9 +723,9 @@ string CodeGen_Tiramisu::get_loop_bound_vars() const {
 string CodeGen_Tiramisu::get_loop_bounds() const {
     ostringstream ss;
     ss << "(";
-    for (size_t i = 0; i < loop_dims.size(); ++i) {
+    for (int i = 0; i < (int)loop_dims.size(); ++i) {
         ss << loop_dims[i].to_string();
-        if (i != loop_dims.size() - 1) {
+        if (i != (int)loop_dims.size() - 1) {
             ss << ") and (";
         }
     }
@@ -633,12 +733,17 @@ string CodeGen_Tiramisu::get_loop_bounds() const {
     return ss.str();
 }
 
+void CodeGen_Tiramisu::visit(const IfThenElse *op) {
+    // TODO(tiramisu): Need to attach the predicate to the computation domain
+    user_error << "Conversion of IfThenElse to Tiramisu is not supported.\n";
+}
+
 void CodeGen_Tiramisu::visit(const StringImm *op) {
     user_error << "Conversion of StringImm to Tiramisu is not supported.\n";
 }
 
 void CodeGen_Tiramisu::visit(const AssertStmt *op) {
-    user_error << "Conversion of AssertStmt to Tiramisu is not supported.\n";
+    // Do nothing
 }
 
 void CodeGen_Tiramisu::visit(const Ramp *op) {
@@ -647,10 +752,6 @@ void CodeGen_Tiramisu::visit(const Ramp *op) {
 
 void CodeGen_Tiramisu::visit(const Broadcast *op) {
     user_error << "Conversion of Broadcast to Tiramisu is not supported.\n";
-}
-
-void CodeGen_Tiramisu::visit(const IfThenElse *op) {
-    user_error << "Conversion of IfThenElse to Tiramisu is not supported.\n";
 }
 
 void CodeGen_Tiramisu::visit(const Free *op) {
@@ -743,7 +844,7 @@ void CodeGen_Tiramisu::visit(const Variable *op) {
     const auto &iter = constant_list.find(op->name);
     if (iter != constant_list.end()) {
         // It is a reference to variable defined in Let/LetStmt
-        //TODO(tiramisu): when do we actually generate constant???
+        // TODO(tiramisu): when do we actually generate constant???
         ss << (*iter) << "(0)";
     } else {
         const auto &it = extent_list.find(op->name);
@@ -751,7 +852,7 @@ void CodeGen_Tiramisu::visit(const Variable *op) {
             ss << "tiramisu::expr(" << op->name << ")";
         } else {
             // It is presumably a reference to loop variable
-            ss << "tiramisu::idx(\"" << op->name << "\")";
+            ss << "tiramisu::var(\"" << op->name << "\")";
         }
     }
     expr = ss.str();
@@ -835,12 +936,9 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
     internal_assert(!op->is_producer || (computation_list.find(op->name) == computation_list.end()))
         << "Found another computation with the same name \"" << op->name << "\".\n";
 
-    vector<Loop> old_loop_dims = loop_dims;
-    int old_loop_depth = loop_depth;
-    loop_depth = 0;
+    vector<LoopDim> old_loop_dims = loop_dims;
     print(op->body);
     loop_dims = old_loop_dims;
-    loop_depth = old_loop_depth;
 
     if (op->is_producer) {
         stream << "\n";
@@ -856,12 +954,12 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
             if (order[0] == op->name) {
                 // Initial definition
                 stream << do_indent();
-                stream << print_name(op->name + ".s0") << ".first(computation::root_dimension);\n";
+                stream << print_name(op->name + ".s0") << ".first(computation::root);\n";
                 // Update definitions
                 for (size_t i = 0; i < func.updates().size(); ++i) {
                     stream << do_indent();
                     stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".after("
-                           << print_name(op->name + ".s" + std::to_string(i)) << ", computation::root_dimension);\n";
+                           << print_name(op->name + ".s" + std::to_string(i)) << ", computation::root);\n";
                 }
             } else {
                 const auto &iter = std::find_if(order.begin(), order.end(),
@@ -875,30 +973,34 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
                 // Initial definition
                 stream << do_indent();
                 stream << print_name(op->name + ".s0") << ".after(" << print_name(prev.name() + ".s")
-                       << std::to_string(prev.updates().size()) << ", computation::root_dimension);\n";
+                       << std::to_string(prev.updates().size()) << ", computation::root);\n";
                 // Update definitions
                 for (size_t i = 0; i < func.updates().size(); ++i) {
                     stream << do_indent();
                     stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".after("
-                           << print_name(op->name + ".s" + std::to_string(i)) << ", computation::root_dimension);\n";
+                           << print_name(op->name + ".s" + std::to_string(i)) << ", computation::root);\n";
                 }
             }
         } else {
             string enclosing_func_name = get_current_func_name();
             internal_assert(compute_at.func() == enclosing_func_name);
-            int enclosing_func_stage = get_current_stage();
-            string parent = print_name(enclosing_func_name + ".s" + std::to_string(enclosing_func_stage));
+            //int enclosing_func_stage = get_current_stage();
+            string enclosing_dim = get_current_dim();
 
-            debug(5) << "Compute Func " << op->name << " at " << compute_at.var().name() << "(" << loop_depth << ")\n";
+            // TODO(tiramisu): this should refer to the current computation in
+            // context if there is duplicate
+            string parent = print_name(enclosing_func_name);
+
+            debug(5) << "Compute Func " << op->name << " at " << compute_at.var().name() << "\n";
 
             // Initial definition
             stream << do_indent();
-            stream << print_name(op->name + ".s0") << ".after(" << parent << ", " << std::to_string(loop_depth) << ");\n";
+            stream << print_name(op->name + ".s0") << ".after(" << parent << ", " << enclosing_dim << ");\n";
             // Update definitions
             for (size_t i = 0; i < func.updates().size(); ++i) {
                 stream << do_indent();
                 stream << print_name(op->name + ".s" + std::to_string(i+1)) << ".after(" << parent
-                       << ", " << std::to_string(loop_depth) << ");\n";
+                       << ", " << enclosing_dim << ");\n";
             }
         }
     }
@@ -906,7 +1008,8 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
 
 string CodeGen_Tiramisu::define_constant(const string &name, Expr val) {
     internal_assert(constant_list.find(name) == constant_list.end())
-        << "Redefinition of lets \"" << name << "\" is not supported right now.\n";
+        << "Redefinition of let: \"" << name << "\". Duplicate lets should have"
+        << " been uniquified before calling this CodeGen.\n";
 
     ostringstream ss;
 
@@ -945,8 +1048,6 @@ string CodeGen_Tiramisu::define_wrapper_let(const string &computation_name,
 }
 
 void CodeGen_Tiramisu::visit(const For *op) {
-    loop_depth += 1;
-
     vector<string> v = split_string(op->name, "_");
     internal_assert((v.size() > 2) && (!v[0].empty()) && (!v[v.size()-1].empty()));
     string func_name = v[0];
@@ -1003,8 +1104,6 @@ void CodeGen_Tiramisu::visit(const For *op) {
 
     print(op->body);
     pop_loop_dim();
-
-    loop_depth -= 1;
 }
 
 void CodeGen_Tiramisu::visit(const Evaluate *op) {
@@ -1014,21 +1113,29 @@ void CodeGen_Tiramisu::visit(const Evaluate *op) {
 // Multi-dimensional store
 void CodeGen_Tiramisu::visit(const Provide *op) {
     int stage = get_current_stage();
+
     string name = print_name(op->name + ".s" + std::to_string(stage));
+    if (duplicate_computation_count[name] > 1) {
+        // This is a duplicate computation
+        name = name + "_" + std::to_string(duplicate_computation_count[name] - 1);
+    }
+
+    // TODO(tiramisu): Technically this buffer might need to be duplicated as
+    // well in case of compute_at
     string buffer_name = "buff_" + print_name(op->name);
 
     string old_computation = current_computation;
     current_computation = name;
 
-    internal_assert(computation_list.find(name) == computation_list.end())
-        << "Duplicate computation \"" << op->name << "\" is not currently supported.\n";
+    internal_assert(computation_list.find(name) == computation_list.end());
     internal_assert(temporary_buffers.count(buffer_name) || output_buffers.count(buffer_name))
-        << "The buffer should have been allocated previously.\n";
+        << "The buffer \"" << buffer_name << "\"should have been allocated previously.\n";
 
     for (size_t i = 0; i < op->args.size(); ++i) {
         user_assert(op->args[i].as<Variable>() != NULL)
-            << "Expect args of provide to be loop dims for now (doesn't currently handle update).\n";
+            << "Expect args of provide to be loop dims for now.\n";
     }
+    // TODO(tiramisu): Suppoart Tuple
     user_assert(op->values.size() == 1) << "Expect 1D store (no tuple) in the Provide node for now.\n";
 
     ostringstream ss;
@@ -1064,6 +1171,9 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
     if (stage > 0) {
         ss << do_indent();
         ss << name << ".set_expression(" << print(op->values[0]) << ");\n";
+
+        debug(0) << "\n\nVALUES: " << op->values[0] << "\n";
+        debug(0) << "\n\nTIRAMISU VALUES:\n" << print(op->values[0]) << "\n\n\n";
     }
 
     stream << ss.str();
@@ -1076,6 +1186,7 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
         buffer_str.clear();
     }
 
+    // TODO(tiramisu): The buffer dims should use the pure dims
     // 1-to-1 mapping to buffer
     string access_str = "{" + name + dim_str + "->" + buffer_name +
                         to_string(get_stage_dims(op->name, stage, true)) + "}";
@@ -1095,9 +1206,14 @@ Expr CodeGen_Tiramisu::substitute_in_scope(Expr expr) const {
 void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
     string name = print_name(op->name);
 
-    // TODO(tiramisu): Assume we don't have duplicate compute for now
-    user_assert(temporary_buffers.find("buff_" + name) == temporary_buffers.end())
-        << "Duplicate allocation (i.e. duplicate compute) is not currently supported.\n";
+    // TODO(tiramisu): Fix this. Maybe we should update the
+    // duplicate_computation_count somewhere else
+    duplicate_computation_count[name] += 1;
+    if (duplicate_computation_count[name] > 1) {
+        // This is a duplicate computation. Allocate new buffer.
+        name = name + "_" + std::to_string(duplicate_computation_count[name] - 1);
+    }
+    internal_assert(temporary_buffers.find("buff_" + name) == temporary_buffers.end());
 
     // TODO(tiramisu): Assert that the types of all buffer dimensions are the same for now.
     for (size_t i = 1; i < op->types.size(); ++i) {
@@ -1141,6 +1257,12 @@ void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
     stream << halide_type_to_tiramisu_type_str(op->types[0]) << ", tiramisu::a_temporary, "
            << "&" << pipeline << ");\n";
 
+    // TODO(tiramisu): Define store level for the temporary buffer
+    stream << "\n";
+    stream << do_indent();
+    stream << "// Define store level for \"" << buffer_name << "\".\n";
+    //stream << name << ".store_at(" << name << "" << "\n";
+
     temporary_buffers.insert(buffer_name);
 }
 
@@ -1177,6 +1299,8 @@ void CodeGen_Tiramisu::visit(const Call *op) {
         ss << "tiramisu::expr(o_floor, ";
         ss << print(op->args[0]);
         ss << ')';
+    } else if (op->is_intrinsic(Call::likely)) {
+        ss << print(op->args[0]);
     } else {
         user_assert((op->call_type == Call::CallType::Halide) || (op->call_type == Call::CallType::Image))
             << "Only handle call to halide func or image for now.\n";
@@ -1199,6 +1323,7 @@ void CodeGen_Tiramisu::visit(const Call *op) {
 
         string call_name;
         if (op->call_type == Call::CallType::Halide) {
+            debug(0) << "\n***GET HERE CALL: " << Expr(op) << "\n";
             string current_producer = get_current_func_name();
             int current_stage = get_current_stage();
 
@@ -1208,18 +1333,20 @@ void CodeGen_Tiramisu::visit(const Call *op) {
             if (op->name != current_producer) {
                 call_name = print_name(op->name + ".s0");
             } else {
+                // Call to previous update stage
                 call_name = print_name(op->name + ".s" + std::to_string(current_stage));
             }
 
             internal_assert(computation_list.find(call_name) != computation_list.end())
                 << "Call to computation \"" << call_name << "\" that does not exist.\n";
 
+            // TODO(tiramisu): Need to fix this
             if ((current_producer == op->name) && (current_stage > 0)) {
                 // It's a reduction, we need to add the "new" reduction dimension
                 vector<string> rvars = get_stage_rvars(current_producer, current_stage);
                 for (const auto &var_name : rvars) {
                     Expr var = Variable::make(Int(32), var_name);
-                    normalized_args.push_back(var - 1);
+                    normalized_args.push_back(var);
                 }
             }
         } else {
@@ -1228,6 +1355,7 @@ void CodeGen_Tiramisu::visit(const Call *op) {
 
         ss << call_name << "(";
         for (size_t i = 0; i < normalized_args.size(); i++) {
+            debug(0) << "\targ: " << normalized_args[i] << " -> " << print(normalized_args[i]) << "\n";
             ss << print(normalized_args[i]);
             if (i < normalized_args.size() - 1) {
                 ss << ", ";
@@ -1236,6 +1364,7 @@ void CodeGen_Tiramisu::visit(const Call *op) {
         ss << ")";
     }
     expr = ss.str();
+    debug(0) << "\texpr: " << expr << "\n\n";
 }
 
 void CodeGen_Tiramisu::visit(const Block *op) {
@@ -1261,10 +1390,59 @@ void print_to_tiramisu(Stmt s, ostream &dest, const string &pipeline_name,
                        const vector<string> &order,
                        const map<string, Function> &env) {
 
+    debug(0) << "Converting from Halide to Tiramisu:\n" << s << "\n\n";
+
+    // We need to figure out the original dim list before split(), etc. are
+    // applied to the dim list.
+    map<pair<string, int>, vector<Dim>> original_dim_list;
+    for (auto &iter : env) {
+        Function func = iter.second;
+        for (int i = 0; i < (int)func.updates().size() + 1; ++i) {
+            Definition def = (i == 0) ? func.definition() : func.updates()[i-1];
+            const vector<Dim> &dims = def.schedule().dims();
+
+            // TODO(tiramisu): How to handle reordering with splits?
+            vector<Dim> new_dims;
+            set<string> seen_dims;
+            for (int i = 0; i < (int)dims.size() - 1; ++i) {
+                Dim d = dims[i];
+                vector<string> v = split_string(d.var, ".");
+                internal_assert(!v.empty());
+                if (!seen_dims.count(v[0])) {
+                    d.var = v[0];
+                    new_dims.push_back(d);
+                    seen_dims.insert(d.var);
+                }
+            }
+
+            // Add the __outermost dimension
+            new_dims.push_back(dims[dims.size()-1]);
+            original_dim_list.emplace(std::make_pair(func.name(), i), new_dims);
+        }
+    }
+
     // Replace all non-alphanumeric chars with combination of underscores to
     // make them legal C variable names.
     s = normalize_variable_names(s);
     debug(3) << "After variable name normalization:\n" << s << "\n\n";
+
+    map<string, vector<Computation>> computations = get_computations(s);
+    debug(0) << "\nComputations:\n";
+    for (const auto &iter : computations) {
+        debug(0) << iter.first << ":\n";
+        for (size_t i = 0; i < iter.second.size(); ++i) {
+            debug(0) << "  Instance " << i << "\n";
+            for (const auto &iter_stage : iter.second[i].stages) {
+                debug(0) << "    Stage " << iter_stage.first << " -> {";
+                for (const auto &d : iter_stage.second.dims) {
+                    debug(0) << d.loop_name << ", ";
+                }
+                debug(0) << "}\n";
+            }
+            debug(0) << "\n";
+        }
+    }
+    debug(0) << "\n";
 
     // TODO(tiramisu): Need to re-normalize the buffers to start from 0.
     // For now, we assume all buffers starts from 0 which may not be
@@ -1274,7 +1452,7 @@ void print_to_tiramisu(Stmt s, ostream &dest, const string &pipeline_name,
     CodeGen_Tiramisu cg(dest, pipeline_name, outputs, output_buffer_extents,
                         output_buffer_types, inputs, input_buffer_extents,
                         input_buffer_types, input_params, input_param_types,
-                        order, env);
+                        order, env, original_dim_list);
     cg.print(s);
 }
 

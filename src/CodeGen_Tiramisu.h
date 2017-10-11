@@ -16,6 +16,35 @@ namespace Halide {
 
 namespace Internal {
 
+struct LoopDim {
+    std::string loop_name;
+    Expr min, extent;
+    std::string func;
+    int stage;
+    std::string var;
+
+    std::string to_string() const {
+        std::ostringstream ss;
+        Expr max = simplify(min + extent - 1);
+        ss << min << " <= " << loop_name << " <= " << max;
+        return ss.str();
+    }
+};
+
+struct Stage {
+    int stage;
+    Expr predicate;
+    std::vector<LoopDim> dims;
+};
+
+struct Computation {
+    std::string name;
+    // Stage -> loop dimensions
+    std::map<int, Stage> stages;
+    // List of all dimension names appear in the computation's stages
+    std::vector<std::string> dims;
+};
+
 /** This class emits C++ code equivalent to a halide Stmt. It's
  * mostly the same as an IRPrinter, but it's wrapped in a function
  * definition, and some things are handled differently to be valid
@@ -36,7 +65,8 @@ public:
                      const std::vector<std::string> &input_params,
                      const std::vector<Type> &input_param_types,
                      const std::vector<std::string> &order,
-                     const std::map<std::string, Function> &env);
+                     const std::map<std::string, Function> &env,
+                     const std::map<std::pair<std::string, int>, std::vector<Dim>> &original_dim_list);
     ~CodeGen_Tiramisu();
 
     EXPORT std::string print(Expr e);
@@ -45,21 +75,6 @@ public:
     EXPORT static void test();
 
 private:
-    struct Loop {
-        std::string name;
-        Expr min, extent;
-        std::string func;
-        int stage;
-        std::string var;
-
-        std::string to_string() const {
-            std::ostringstream ss;
-            Expr max = simplify(min + extent - 1);
-            ss << min << " <= " << name << " <= " << max;
-            return ss.str();
-        }
-    };
-
     std::string expr;
     std::ostream &stream;
     int indent;
@@ -68,18 +83,20 @@ private:
     std::string pipeline;
     const std::vector<std::string> &order;
     const std::map<std::string, Function> &env;
+    const std::map<std::pair<std::string, int>, std::vector<Dim>> &original_dim_list;
 
     std::vector<std::pair<std::string, Expr>> scope; // Scope of the variables
-    std::vector<Loop> loop_dims;
+    std::vector<LoopDim> loop_dims; // From outermost to innermost
     std::set<std::string> output_buffers;
     std::set<std::string> input_buffers;
     std::set<std::string> temporary_buffers;
     std::set<std::string> computation_list;
     std::set<std::string> constant_list;
     std::set<std::string> extent_list;
-    int loop_depth;
     std::vector<std::string> buffer_str;
     std::string current_computation;
+
+    std::map<std::string, int> duplicate_computation_count;
 
     std::string do_indent() const;
 
@@ -92,15 +109,16 @@ private:
     std::string define_wrapper_let(const std::string &computation_name,
                                    const std::string &name, Expr value);
     void generate_schedules();
-    void generate_schedule(const Function &func, int stage,
-                           const StageSchedule &schedule, size_t i);
-    void generate_split_schedule(const Function &func, int stage, const Split &split,
-                                 std::vector<std::string> &dims);
+    void generate_stage_schedule(const Function &func, int stage,
+                                 const StageSchedule &schedule,
+                                 std::set<std::string> &vars,
+                                 std::ostream &sched_ss);
 
     Expr substitute_in_scope(Expr expr) const;
 
     std::string get_current_func_name() const;
     int get_current_stage() const;
+    std::string get_current_dim() const;
 
     void generate_buffer(const Realize *op);
 
