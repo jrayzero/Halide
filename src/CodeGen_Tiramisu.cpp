@@ -373,8 +373,8 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
         string buffer_name = "buff_" + print_name(f.name());
         stream << do_indent();
         stream << "tiramisu::buffer " << buffer_name << "(\"" << buffer_name << "\", "
-               << f.args().size() << ", " << sizes.str() << ", "
-               << halide_type_to_tiramisu_type_str(type) << ", NULL, tiramisu::a_output, "
+               << sizes.str() << ", "
+               << halide_type_to_tiramisu_type_str(type) << ", tiramisu::a_output, "
                << "&" << pipeline << ");\n";
         output_buffers.insert(buffer_name);
     }
@@ -413,8 +413,8 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
         string buffer_name = "buff_" + print_name(input_name);
         stream << do_indent();
         stream << "tiramisu::buffer " << buffer_name << "(\"" << buffer_name << "\", "
-               << buffer_extents.size() << ", " << sizes.str() << ", "
-               << halide_type_to_tiramisu_type_str(type) << ", NULL, tiramisu::a_input, "
+               << sizes.str() << ", "
+               << halide_type_to_tiramisu_type_str(type) << ", tiramisu::a_input, "
                << "&" << pipeline << ");\n";
         input_buffers.insert(buffer_name);
 
@@ -587,7 +587,7 @@ void CodeGen_Tiramisu::generate_schedules() {
         stream << "// Declare vars.\n";
         for (const string &v : vars) {
             stream << do_indent();
-            stream << "tiramisu::var " << v << "(\"" << v << "\")\n";
+            stream << "tiramisu::var " << v << "(\"" << v << "\");\n";
         }
     }
 
@@ -632,7 +632,7 @@ CodeGen_Tiramisu::~CodeGen_Tiramisu() {
     stream << do_indent();
     stream << pipeline << ".set_arguments(" << buffers_stream.str() << ");\n";
     stream << do_indent();
-    stream << pipeline << ".gen_time_processor_domain();\n";
+    stream << pipeline << ".gen_time_space_domain();\n";
     stream << do_indent();
     stream << pipeline << ".gen_isl_ast();\n";
     stream << do_indent();
@@ -952,9 +952,6 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
         // TODO(tiramisu): Do you need to do .after() for inlined?
         if (compute_at.is_root() || compute_at.is_inline()) {
             if (order[0] == op->name) {
-                // Initial definition
-                stream << do_indent();
-                stream << print_name(op->name + ".s0") << ".first(computation::root);\n";
                 // Update definitions
                 for (size_t i = 0; i < func.updates().size(); ++i) {
                     stream << do_indent();
@@ -1171,9 +1168,6 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
     if (stage > 0) {
         ss << do_indent();
         ss << name << ".set_expression(" << print(op->values[0]) << ");\n";
-
-        debug(0) << "\n\nVALUES: " << op->values[0] << "\n";
-        debug(0) << "\n\nTIRAMISU VALUES:\n" << print(op->values[0]) << "\n\n\n";
     }
 
     stream << ss.str();
@@ -1323,7 +1317,6 @@ void CodeGen_Tiramisu::visit(const Call *op) {
 
         string call_name;
         if (op->call_type == Call::CallType::Halide) {
-            debug(0) << "\n***GET HERE CALL: " << Expr(op) << "\n";
             string current_producer = get_current_func_name();
             int current_stage = get_current_stage();
 
@@ -1355,7 +1348,6 @@ void CodeGen_Tiramisu::visit(const Call *op) {
 
         ss << call_name << "(";
         for (size_t i = 0; i < normalized_args.size(); i++) {
-            debug(0) << "\targ: " << normalized_args[i] << " -> " << print(normalized_args[i]) << "\n";
             ss << print(normalized_args[i]);
             if (i < normalized_args.size() - 1) {
                 ss << ", ";
@@ -1364,7 +1356,6 @@ void CodeGen_Tiramisu::visit(const Call *op) {
         ss << ")";
     }
     expr = ss.str();
-    debug(0) << "\texpr: " << expr << "\n\n";
 }
 
 void CodeGen_Tiramisu::visit(const Block *op) {

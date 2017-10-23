@@ -214,8 +214,8 @@ int main(int argc, char **argv) {
 
     // Blur x-y
     if (0) {
-        //ImageParam input(UInt(8), 3);
-        Buffer<uint8_t> input(2124, 3540, 3);
+        ImageParam input(UInt(8), 3);
+        //Buffer<uint8_t> input(2124, 3540, 3);
         Func blur_x("blur_x"), blur_y("blur_y");
         Var x("x"), y("y"), c("c"), xi("xi"), yi("yi");
 
@@ -223,16 +223,12 @@ int main(int argc, char **argv) {
         blur_x(x, y, c) = (input(x, y, c) + input(x+1, y, c) + input(x+2, y, c))/3;
         blur_y(x, y, c) = (blur_x(x, y, c) + blur_x(x, y+1, c) + blur_x(x, y+2, c))/3;
 
-        Var x_inner, y_inner, x_outer, y_outer, tile_index;
-        blur_y.tile(x, y, x_outer, y_outer, x_inner, y_inner, 4, 4)
-              .fuse(x_outer, y_outer, tile_index)
-              .compute_root()
-              .parallel(tile_index)
-              .parallel(c);
-        blur_x.compute_at(blur_y, y_inner);
+        // How to schedule it
+        blur_y.split(y, y, yi, 8).parallel(y).vectorize(x, 8).parallel(c);
+        blur_x.store_at(blur_y, y).compute_at(blur_y, yi).vectorize(x, 8).parallel(c);
 
-        blur_y.realize(2116, 3532, 3);
-        //blur_y.compile_to_tiramisu("blurxy_tiramisu.cpp", "blurxy_tiramisu");
+        //blur_y.realize(2116, 3532, 3);
+        blur_y.compile_to_tiramisu("blurxy_tiramisu.cpp", "blurxy_tiramisu");
     }
 
     // RGB to YUV420
@@ -259,8 +255,8 @@ int main(int argc, char **argv) {
 
     // CVT Color benchmark
     if (0) {
-        //ImageParam in{UInt(8), 3, "input"};
-        Buffer<uint8_t> in(2116, 3538, 3);
+        ImageParam in{UInt(8), 3, "input"};
+        //Buffer<uint8_t> in(2116, 3538, 3);
 
         Func RGB2Gray{"RGB2Gray"};
         Var x("x"), y("y"), c("c");
@@ -276,11 +272,11 @@ int main(int argc, char **argv) {
                                   + in(x, y, 0) * R2Y),
                                   yuv_shift));
 
-        RGB2Gray.parallel(y);//.vectorize(x, 8);
+        RGB2Gray.parallel(y).vectorize(x, 8);
 
-        RGB2Gray.realize(2116, 3538);
+        //RGB2Gray.realize(2116, 3538);
 
-        //RGB2Gray.compile_to_tiramisu("cvtcolor.cpp", "cvtcolor");
+        RGB2Gray.compile_to_tiramisu("cvtcolor.cpp", "cvtcolor");
     }
 
     // Rec-filter
@@ -322,7 +318,7 @@ int main(int argc, char **argv) {
         RDom r(1, in.width()-2, 1, in.height()-2);
         heat2d(x, y) = 0.0f;
         heat2d(r.x, r.y) = alpha * in(r.x, r.y) +
-                       beta * (in(r.x+1, r.y) + in(r.x-1, r.y) + in(r.x, r.y+1) + in(r.x, r.y-1));
+                           beta * (in(r.x+1, r.y) + in(r.x-1, r.y) + in(r.x, r.y+1) + in(r.x, r.y-1));
 
         heat2d.parallel(y);//.vectorize(x, 8);
         heat2d.update().parallel(r.y);//.vectorize(r.x, 8);
@@ -332,7 +328,43 @@ int main(int argc, char **argv) {
         heat2d.compile_to_tiramisu("heat2d_tiramisu.cpp", "heat2d_tiramisu");
     }
 
-    if (1) {
+    if (0) {
+        /*ImageParam in(Float(32), 2, "input");
+        Param<float> alpha;
+        Param<float> beta;
+        Param<int> t;*/
+
+        Buffer<float> in(10000, 10000);
+        float alpha = 0.3;
+        float beta = 0.4;
+        int t = 100;
+
+        Func heat3d{"heat3d"};
+        Var x, y, z;
+        Var k;
+
+        RDom time{1, t, "t"};
+
+        heat3d(x, y, z, k) = undef<float>();
+        heat3d(x, y, z, 0) = alpha * in(x, y, z) +
+                             beta * (in(x+1, y, z) + in(x-1, y, z)+
+                                     in(x, y+1, z) + in(x, y-1, z) +
+                                     in(x, y, z+1) + in(x, y, z-1));
+
+
+        heat3d(x, y, z, time.x) = alpha * heat3d(x, y, z, time.x-1) +
+                                  beta * (heat3d(x+1, y, z, time.x-1) + heat3d(x-1, y, z, time.x-1)+
+                                          heat3d(x, y+1, z, time.x-1) + heat3d(x, y-1, z, time.x-1) +
+                                          heat3d(x, y, z+1, time.x-1) + heat3d(x, y, z-1, time.x-1));
+
+        heat3d.parallel(z).vectorize(x, 8);
+
+        heat3d.realize(10000, 10000);
+
+        //heat3d.compile_to_tiramisu("heat3d_tiramisu.cpp", "heat3d_tiramisu");
+    }
+
+    if (0) {
         ImageParam in(Float(32), 2, "input");
         Param<float> alpha;
         Param<float> beta;
