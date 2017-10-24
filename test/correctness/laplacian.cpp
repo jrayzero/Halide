@@ -148,9 +148,9 @@ int main(int argc, char **argv) {
     // Convert back to 16-bit
     output(x, y, c) = cast<uint16_t>(clamp(color(x, y, c), 0.0f, 1.0f) * 65535.0f);
 
-    /*Target target = get_target_from_environment();
+    Target target = get_target_from_environment();
     if (target.has_gpu_feature()) {
-        Var xi, yi;
+        Var xi("xi"), yi("yi");
         output.compute_root().gpu_tile(x, y, xi, yi, 16, 8);
         for (int j = 0; j < J; j++) {
             int blockw = 16, blockh = 8;
@@ -165,17 +165,20 @@ int main(int argc, char **argv) {
             outGPyramid[j].compute_root().gpu_tile(x, y, xi, yi, blockw, blockh);
         }
     } else {
-        // cpu schedule
-        Var yi;
+        // CPU schedule
+        Var yi("yi");
         output.parallel(y, 32).vectorize(x, 8);
         gray.compute_root().parallel(y, 32).vectorize(x, 8);
         for (int j = 0; j < J; j++) {
             if (j > 0) {
-                inGPyramid[j]
-                        .compute_root().parallel(y, 32).vectorize(x, 8);
-                gPyramid[j]
-                        .compute_root().reorder_storage(x, k, y)
-                        .reorder(k, y).parallel(y, 8).vectorize(x, 8);
+                inGPyramid[j].compute_root()
+                    .parallel(y, 32)
+                    .vectorize(x, 8);
+                gPyramid[j].compute_root()
+                    .reorder(k, y)
+                    .parallel(y, 8)
+                    .vectorize(x, 8);
+                    //.reorder_storage(x, k, y);
             }
             outGPyramid[j].compute_root().parallel(y, 32).vectorize(x, 8);
         }
@@ -184,12 +187,12 @@ int main(int argc, char **argv) {
             gPyramid[j].compute_root().parallel(k);
             outGPyramid[j].compute_root();
         }
-    }*/
+    }
 
-    Buffer<uint16_t> out(input.width(), input.height(), input.channels());
-    output.realize(out);
+    //Buffer<uint16_t> out(input.width(), input.height(), input.channels());
+    //output.realize(out);
 
-    bilateral_grid.compile_to_tiramisu("laplacian_tiramisu.cpp", "laplacian_tiramisu");
+    output.compile_to_tiramisu("laplacian_tiramisu.cpp", "laplacian_tiramisu");
 
     return 0;
 }

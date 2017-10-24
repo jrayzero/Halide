@@ -362,8 +362,8 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
             sizes << "tiramisu::expr(" << extent_str << ")";
             // TODO(tiramisu): Assume "min" always starts from 0 for now. Pick
             // random value for the extent.
-            scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
-            scope.push_back(std::make_pair(extent_str, make_const(Int(32), 10)));
+            //scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
+            //scope.push_back(std::make_pair(extent_str, make_const(Int(32), 2000)));
             if (i != 0) {
                 sizes << ", ";
             }
@@ -845,7 +845,7 @@ void CodeGen_Tiramisu::visit(const Variable *op) {
     if (iter != constant_list.end()) {
         // It is a reference to variable defined in Let/LetStmt
         // TODO(tiramisu): when do we actually generate constant???
-        ss << (*iter) << "(0)";
+        ss << (*iter);
     } else {
         const auto &it = extent_list.find(op->name);
         if (it != extent_list.end()) {
@@ -1153,11 +1153,12 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
     ss << do_indent();
     ss << "\"" << get_loop_bounds() << "}\", \n";
     ss << do_indent();
-    if (stage == 0) {
+    /*if (stage == 0) {
         ss << print(op->values[0]);
     } else {
         ss << "tiramisu::expr()";
-    }
+    }*/
+    ss << "tiramisu::expr()";
 
     ss << ", true, " << halide_type_to_tiramisu_type_str(op->values[0].type())
            << ", &" << pipeline << ");\n";
@@ -1165,10 +1166,10 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
 
     computation_list.insert(name);
 
-    if (stage > 0) {
+    //if (stage > 0) {
         ss << do_indent();
         ss << name << ".set_expression(" << print(op->values[0]) << ");\n";
-    }
+    //}
 
     stream << ss.str();
 
@@ -1227,12 +1228,12 @@ void CodeGen_Tiramisu::generate_buffer(const Realize *op) {
     }
 
     // TODO(tiramisu): Assert that the bounds on the dimensions start from 0 for now.
-    for (size_t i = 0; i < bounds.size(); ++i) {
+    /*for (size_t i = 0; i < bounds.size(); ++i) {
         user_assert(is_zero(bounds[i].min))
             << "Bound of realize node \"" << name << "\" should start from 0 for now.\n"
             << "Got " << bounds[i].min << " instead.\n"
             << "Original bound min: " << op->bounds[i].min << "\n";
-    }
+    }*/
 
     // Create a temporary buffer
     string buffer_name = "buff_" + name;
@@ -1293,11 +1294,27 @@ void CodeGen_Tiramisu::visit(const Call *op) {
         ss << "tiramisu::expr(o_floor, ";
         ss << print(op->args[0]);
         ss << ')';
+    } else if ((op->name == "exp_f16") || (op->name == "exp_f32") || (op->name == "exp_f64")) {
+        internal_assert(op->args.size() == 1);
+        ss << "tiramisu::expr(o_expo, ";
+        ss << print(op->args[0]);
+        ss << ')';
+    } else if ((op->name == "sqrt_f16") || (op->name == "sqrt_f32") || (op->name == "sqrt_f64")) {
+        internal_assert(op->args.size() == 1);
+        ss << "tiramisu::expr(o_sqrt, ";
+        ss << print(op->args[0]);
+        ss << ')';
+    } else if ((op->name == "log_f16") || (op->name == "log_f32") || (op->name == "log_f64")) {
+        internal_assert(op->args.size() == 1);
+        ss << "tiramisu::expr(o_log, ";
+        ss << print(op->args[0]);
+        ss << ')';
     } else if (op->is_intrinsic(Call::likely)) {
         ss << print(op->args[0]);
     } else {
         user_assert((op->call_type == Call::CallType::Halide) || (op->call_type == Call::CallType::Image))
-            << "Only handle call to halide func or image for now.\n";
+            << "Only handle call to halide func or image for now.\n"
+            << Expr(op) << "\n";
 
         // TODO(psuriana): FIX THIS
 
@@ -1381,7 +1398,7 @@ void print_to_tiramisu(Stmt s, ostream &dest, const string &pipeline_name,
                        const vector<string> &order,
                        const map<string, Function> &env) {
 
-    debug(0) << "Converting from Halide to Tiramisu:\n" << s << "\n\n";
+    debug(1) << "Converting from Halide to Tiramisu:\n" << s << "\n\n";
 
     // We need to figure out the original dim list before split(), etc. are
     // applied to the dim list.
@@ -1417,7 +1434,7 @@ void print_to_tiramisu(Stmt s, ostream &dest, const string &pipeline_name,
     s = normalize_variable_names(s);
     debug(3) << "After variable name normalization:\n" << s << "\n\n";
 
-    map<string, vector<Computation>> computations = get_computations(s);
+    /*map<string, vector<Computation>> computations = get_computations(s);
     debug(0) << "\nComputations:\n";
     for (const auto &iter : computations) {
         debug(0) << iter.first << ":\n";
@@ -1433,7 +1450,7 @@ void print_to_tiramisu(Stmt s, ostream &dest, const string &pipeline_name,
             debug(0) << "\n";
         }
     }
-    debug(0) << "\n";
+    debug(0) << "\n";*/
 
     // TODO(tiramisu): Need to re-normalize the buffers to start from 0.
     // For now, we assume all buffers starts from 0 which may not be
