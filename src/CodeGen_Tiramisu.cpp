@@ -431,7 +431,7 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
 
         stream << do_indent();
         stream << "tiramisu::computation " << input_name << "(\"" << iter_space_str << "\", "
-               << "expr(), false, " << halide_type_to_tiramisu_type_str(type)
+               << "tiramisu::expr(), false, " << halide_type_to_tiramisu_type_str(type)
                << ", &" << pipeline << ");\n";
 
         // 1-to-1 mapping to buffer

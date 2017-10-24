@@ -5,7 +5,7 @@ using namespace Halide;
 using namespace Halide::Tools;
 
 int main(int argc, char **argv) {
-    int W = 2560;
+    /*int W = 2560;
     int H = 1536;
 
     Buffer<float> input(W, H);
@@ -14,11 +14,13 @@ int main(int argc, char **argv) {
                 input(x, y) = rand() & 0xfff;
         }
     }
-
-    //ImageParam input(Float(32), 2, "input");
-
     float r_sigma = 0.1;
-    int s_sigma = 8;
+    int s_sigma = 8;*/
+
+    ImageParam input(Float(32), 2, "input");
+    Param<float> r_sigma;
+    Param<int> s_sigma;
+
     Var x("x"), y("y"), z("z"), c("c");
 
     // Add a boundary condition
@@ -32,9 +34,6 @@ int main(int argc, char **argv) {
     Func histogram("histogram");
     histogram(x, y, z, c) = 0.0f;
     histogram(x, y, zi, c) += select(c == 0, val, 1.0f);
-
-    // TODO: Compute the estimate from the parameter values
-    histogram.estimate(z, -2, 16);
 
     // Blur the grid using a five-tap filter
     Func blurx("blurx"), blury("blury"), blurz("blurz");
@@ -53,11 +52,6 @@ int main(int argc, char **argv) {
                          blurx(x, y  , z, c)*6 +
                          blurx(x, y+1, z, c)*4 +
                          blurx(x, y+2, z, c));
-
-    // TODO: Compute the estimate from the parameter values
-    blurz.estimate(z, 0, 12);
-    blurx.estimate(z, 0, 12);
-    blury.estimate(z, 0, 12);
 
     // Take trilinear samples to compute the output
     val = clamp(input(x, y), 0.0f, 1.0f);
@@ -79,7 +73,8 @@ int main(int argc, char **argv) {
     Func bilateral_grid("bilateral_grid");
     bilateral_grid(x, y) = interpolated(x, y, 0)/interpolated(x, y, 1);
 
-    /*if (target.has_gpu_feature()) {
+    /*Target target = get_target_from_environment();
+    if (target.has_gpu_feature()) {
         Var xi("xi"), yi("yi"), zi("zi");
 
         // Schedule blurz in 8x8 tiles. This is a tile in
@@ -118,9 +113,10 @@ int main(int argc, char **argv) {
 
     //input.set(img);
 
-    // Benchmark the schedule
-    Buffer<float> out(input.width(), input.height());
-    bilateral_grid.realize(out);
+    //Buffer<float> out(input.width(), input.height());
+    //bilateral_grid.realize(out);
+
+    bilateral_grid.compile_to_tiramisu("bilateral_grid_tiramisu.cpp", "bilateral_grid_tiramisu");
 
     return 0;
 }

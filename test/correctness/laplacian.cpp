@@ -22,14 +22,14 @@ Func upsample(Func f) {
     return upy;
 }
 
-double run_test(bool auto_schedule) {
+int main(int argc, char **argv) {
     /* THE ALGORITHM */
 
     // Number of pyramid levels
     int J = 8;
     const int maxJ = 20;
 
-    // number of intensity levels
+    /*// number of intensity levels
     int levels = 8;
     // Parameters controlling the filter
     float alpha = 1;
@@ -38,14 +38,18 @@ double run_test(bool auto_schedule) {
     int W = 2560;
     int H = 1536;
     Buffer<uint16_t> input(W, H, 3);
-
     for (int y = 0; y < input.height(); y++) {
         for (int x = 0; x < input.width(); x++) {
             for (int c = 0; c < 3; c++) {
                 input(x, y, c) = rand() & 0xfff;
             }
         }
-    }
+    }*/
+
+    ImageParam input(UInt(16), 3, "input");
+    Param<int> levels;
+    Param<float> alpha;
+    Param<float> beta;
 
     // loop variables
     Var c("c"), k("k");
@@ -144,83 +148,48 @@ double run_test(bool auto_schedule) {
     // Convert back to 16-bit
     output(x, y, c) = cast<uint16_t>(clamp(color(x, y, c), 0.0f, 1.0f) * 65535.0f);
 
-    // Specify estimates
-    output.estimate(x, 0, 1536).estimate(y, 0, 2560).estimate(c, 0, 3);
-
-    /* THE SCHEDULE */
-    Target target = get_target_from_environment();
-    Pipeline p(output);
-
-    if (!auto_schedule) {
-        if (target.has_gpu_feature()) {
-            Var xi, yi;
-            output.compute_root().gpu_tile(x, y, xi, yi, 16, 8);
-            for (int j = 0; j < J; j++) {
-                int blockw = 16, blockh = 8;
-                if (j > 3) {
-                    blockw = 2;
-                    blockh = 2;
-                }
-                if (j > 0) {
-                    inGPyramid[j].compute_root().gpu_tile(x, y, xi, yi, blockw, blockh);
-                    gPyramid[j].compute_root().reorder(k, x, y).gpu_tile(x, y, xi, yi, blockw, blockh);
-                }
-                outGPyramid[j].compute_root().gpu_tile(x, y, xi, yi, blockw, blockh);
+    /*Target target = get_target_from_environment();
+    if (target.has_gpu_feature()) {
+        Var xi, yi;
+        output.compute_root().gpu_tile(x, y, xi, yi, 16, 8);
+        for (int j = 0; j < J; j++) {
+            int blockw = 16, blockh = 8;
+            if (j > 3) {
+                blockw = 2;
+                blockh = 2;
             }
-        } else {
-            // cpu schedule
-            Var yi;
-            output.parallel(y, 32).vectorize(x, 8);
-            gray.compute_root().parallel(y, 32).vectorize(x, 8);
-            for (int j = 0; j < J; j++) {
-                if (j > 0) {
-                    inGPyramid[j]
-                            .compute_root().parallel(y, 32).vectorize(x, 8);
-                    gPyramid[j]
-                            .compute_root().reorder_storage(x, k, y)
-                            .reorder(k, y).parallel(y, 8).vectorize(x, 8);
-                }
-                outGPyramid[j].compute_root().parallel(y, 32).vectorize(x, 8);
+            if (j > 0) {
+                inGPyramid[j].compute_root().gpu_tile(x, y, xi, yi, blockw, blockh);
+                gPyramid[j].compute_root().reorder(k, x, y).gpu_tile(x, y, xi, yi, blockw, blockh);
             }
-            for (int j = 4; j < J; j++) {
-                inGPyramid[j].compute_root();
-                gPyramid[j].compute_root().parallel(k);
-                outGPyramid[j].compute_root();
-            }
+            outGPyramid[j].compute_root().gpu_tile(x, y, xi, yi, blockw, blockh);
         }
     } else {
-        // Auto-schedule the pipeline
-        p.auto_schedule(target);
-    }
+        // cpu schedule
+        Var yi;
+        output.parallel(y, 32).vectorize(x, 8);
+        gray.compute_root().parallel(y, 32).vectorize(x, 8);
+        for (int j = 0; j < J; j++) {
+            if (j > 0) {
+                inGPyramid[j]
+                        .compute_root().parallel(y, 32).vectorize(x, 8);
+                gPyramid[j]
+                        .compute_root().reorder_storage(x, k, y)
+                        .reorder(k, y).parallel(y, 8).vectorize(x, 8);
+            }
+            outGPyramid[j].compute_root().parallel(y, 32).vectorize(x, 8);
+        }
+        for (int j = 4; j < J; j++) {
+            inGPyramid[j].compute_root();
+            gPyramid[j].compute_root().parallel(k);
+            outGPyramid[j].compute_root();
+        }
+    }*/
 
-    p.compile_to_lowered_stmt("laplacian.html", {input}, HTML, target);
-    // Inspect the schedule
-    output.print_loop_nest();
-
-    // Benchmark the schedule
     Buffer<uint16_t> out(input.width(), input.height(), input.channels());
-    double t = benchmark(3, 10, [&]() {
-        p.realize(out);
-    });
+    output.realize(out);
 
-    return t*1000;
-}
+    bilateral_grid.compile_to_tiramisu("laplacian_tiramisu.cpp", "laplacian_tiramisu");
 
-int main(int argc, char **argv) {
-    double manual_time = run_test(false);
-    double auto_time = run_test(true);
-
-    std::cout << "======================" << std::endl;
-    std::cout << "Manual time: " << manual_time << "ms" << std::endl;
-    std::cout << "Auto time: " << auto_time << "ms" << std::endl;
-    std::cout << "======================" << std::endl;
-
-    if (!get_target_from_environment().has_gpu_feature() &&
-        (auto_time > manual_time * 2)) {
-        printf("Auto-scheduler is much much slower than it should be.\n");
-        return -1;
-    }
-
-    printf("Success!\n");
     return 0;
 }
