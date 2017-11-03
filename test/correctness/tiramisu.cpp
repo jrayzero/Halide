@@ -234,25 +234,26 @@ int main(int argc, char **argv) {
     }
 
     // RGB to YUV420
-    if (0) {
-        ImageParam rgb(Int(16), 3);
-        //Buffer<int16_t> rgb(2124, 3540, 3);
+    if (1) {
+        ImageParam rgb(UInt(8), 3);
+        //Buffer<uint8_t> rgb(2124, 3540, 3);
 
-        Var x("x"), y("y");
+        Var x("x"), y("y"), z("z");
         Func y_part("y_part"), u_part("u_part"), v_part("v_part");
 
-        y_part(x, y) = cast<uint8_t>(((66 * rgb(x, y, 0) + 129 * rgb(x, y, 1) +  25 * rgb(x, y, 2) + 128) >> 8) +  16);
-        u_part(x, y) = cast<uint8_t>((( -38 * rgb(2*x, 2*y, 0) -  74 * rgb(2*x, 2*y, 1) + 112 * rgb(2*x, 2*y, 2) + 128) >> 8) + 128);
-        v_part(x, y) = cast<uint8_t>((( 112 * rgb(2*x, 2*y, 0) -  94 * rgb(2*x, 2*y, 1) -  18 * rgb(2*x, 2*y, 2) + 128) >> 8) + 128);
+        y_part(x, y) = cast<uint8_t>(((66 * cast<int>(rgb(x, y, 0)) + 129 * cast<int>(rgb(x, y, 1)) +  25 * cast<int>(rgb(x, y, 2)) + 128) % 256) +  16);
+        u_part(x, y) = cast<uint8_t>((( -38 * cast<int>(rgb(2*x, 2*y, 0)) -  cast<int>(74 * rgb(2*x, 2*y, 1)) + 112 * cast<int>(rgb(2*x, 2*y, 2) + 128)) % 256) + 128);
+        v_part(x, y) = cast<uint8_t>((( 112 * cast<int>(rgb(2*x, 2*y, 0)) -  cast<int>(94 * rgb(2*x, 2*y, 1)) -  18 * cast<int>(rgb(2*x, 2*y, 2) + 128)) % 256) + 128);
 
-        //u_part.compute_with(y_part, y);
-        //v_part.compute_with(u_part, y);
+        y_part.parallel(y).vectorize(x, 8);
+        u_part.parallel(y).vectorize(x, 8);
+        v_part.parallel(y).vectorize(x, 8);
 
         /*const int size = 100;
         Buffer<uint8_t> y_im(size, size), u_im(size/2, size/2), v_im(size/2, size/2);
         Pipeline({y_part, u_part, v_part}).realize({y_im, u_im, v_im});*/
 
-        Pipeline({y_part, u_part, v_part}).compile_to_tiramisu("rgbyuv420.cpp", "rgbyuv420");
+        Pipeline({y_part, u_part, v_part}).compile_to_tiramisu("rgbyuv420_tiramisu.cpp", "rgbyuv420_tiramisu");
     }
 
     // CVT Color benchmark
@@ -486,7 +487,7 @@ int main(int argc, char **argv) {
         affine.compile_to_tiramisu("affine_tiramisu.cpp", "affine_tiramisu");
     }
 
-    if (1) {
+    if (0) {
         ImageParam in{UInt(8), 2, "input"};
         Param<int> resampled_rows;
         Param<int> resampled_cols;

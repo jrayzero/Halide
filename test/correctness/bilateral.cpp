@@ -73,14 +73,16 @@ int main(int argc, char **argv) {
     Func bilateral_grid("bilateral_grid");
     bilateral_grid(x, y) = interpolated(x, y, 0)/interpolated(x, y, 1);
 
-    /*Target target = get_target_from_environment();
+    Target target = get_target_from_environment();
     if (target.has_gpu_feature()) {
         Var xi("xi"), yi("yi"), zi("zi");
 
         // Schedule blurz in 8x8 tiles. This is a tile in
         // grid-space, which means it represents something like
         // 64x64 pixels in the input (if s_sigma is 8).
-        blurz.compute_root().reorder(c, z, x, y).gpu_tile(x, y, xi, yi, 8, 8);
+        blurz.compute_root()
+            .reorder(c, z, x, y)
+            .gpu_tile(x, y, xi, yi, 8, 8);
 
         // Schedule histogram to happen per-tile of blurz, with
         // intermediate results in shared memory. This means histogram
@@ -88,8 +90,13 @@ int main(int argc, char **argv) {
         // 1) Zero out the 8x8 set of histograms
         // 2) Compute those histogram by iterating over lots of the input image
         // 3) Blur the set of histograms in z
-        histogram.reorder(c, z, x, y).compute_at(blurz, x).gpu_threads(x, y);
-        histogram.update().reorder(c, r.x, r.y, x, y).gpu_threads(x, y).unroll(c);
+        histogram.compute_at(blurz, x)
+            .reorder(c, z, x, y)
+            .gpu_threads(x, y);
+        histogram.update()
+            .reorder(c, r.x, r.y, x, y)
+            .gpu_threads(x, y)
+            .unroll(c);
 
         // An alternative schedule for histogram that doesn't use shared memory:
         // histogram.compute_root().reorder(c, z, x, y).gpu_tile(x, y, xi, yi, 8, 8);
@@ -101,15 +108,33 @@ int main(int argc, char **argv) {
         bilateral_grid.compute_root().gpu_tile(x, y, xi, yi, s_sigma, s_sigma);
     } else {
         // The CPU schedule.
-        blurz.compute_root().reorder(c, z, x, y).parallel(y).vectorize(x, 8).unroll(c);
+        blurz.compute_root()
+            .reorder(c, z, x, y)
+            .parallel(y)
+            .vectorize(x, 8)
+            .unroll(c);
         //histogram.compute_at(blurz, y);
         //histogram.update().reorder(c, r.x, r.y, x, y).unroll(c);
-        histogram.compute_root().reorder(c, y).parallel(y);
-        histogram.update().reorder(c, y).parallel(y);
-        blurx.compute_root().reorder(c, x, y, z).parallel(z).vectorize(x, 8).unroll(c);
-        blury.compute_root().reorder(c, x, y, z).parallel(z).vectorize(x, 8).unroll(c);
-        bilateral_grid.compute_root().parallel(y).vectorize(x, 8);
-    }*/
+        histogram.compute_root()
+            .reorder(c, y)
+            .parallel(y);
+        histogram.update()
+            .reorder(c, y)
+            .parallel(y);
+        blurx.compute_root()
+            .reorder(c, x, y, z)
+            .parallel(z)
+            .vectorize(x, 8)
+            .unroll(c);
+        blury.compute_root()
+            .reorder(c, x, y, z)
+            .parallel(z)
+            .vectorize(x, 8)
+            .unroll(c);
+        bilateral_grid.compute_root()
+            .parallel(y)
+            .vectorize(x, 8);
+    }
 
     //input.set(img);
 

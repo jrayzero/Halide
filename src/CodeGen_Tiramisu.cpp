@@ -362,7 +362,7 @@ CodeGen_Tiramisu::CodeGen_Tiramisu(ostream &dest, const string &pipeline_name,
             sizes << "tiramisu::expr(" << extent_str << ")";
             // TODO(tiramisu): Assume "min" always starts from 0 for now. Pick
             // random value for the extent.
-            //scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
+            scope.push_back(std::make_pair(min_str, make_const(Int(32), 0)));
             //scope.push_back(std::make_pair(extent_str, make_const(Int(32), 2000)));
             if (i != 0) {
                 sizes << ", ";
@@ -940,7 +940,7 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
     print(op->body);
     loop_dims = old_loop_dims;
 
-    if (op->is_producer) {
+    /*if (op->is_producer) {
         stream << "\n";
         stream << do_indent();
         stream << "// Define compute level for \"" << op->name << "\".\n";
@@ -1000,7 +1000,7 @@ void CodeGen_Tiramisu::visit(const ProducerConsumer *op) {
                        << ", " << enclosing_dim << ");\n";
             }
         }
-    }
+    }*/
 }
 
 string CodeGen_Tiramisu::define_constant(const string &name, Expr val) {
@@ -1040,6 +1040,7 @@ string CodeGen_Tiramisu::define_wrapper_let(const string &computation_name,
        << ", false, &" << computation_name << ", 1, &" << pipeline << ");\n";
 
     constant_list.insert(name);
+    computation_constants[current_computation].push_back(name);
 
     return ss.str();
 }
@@ -1130,7 +1131,9 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
 
     for (size_t i = 0; i < op->args.size(); ++i) {
         user_assert(op->args[i].as<Variable>() != NULL)
-            << "Expect args of provide to be loop dims for now.\n";
+            << "Expect args of provide to be loop dims for now.\n"
+            << "ARGS: " << op->args[i] << "\n"
+            << "\n\nPROVIDE: " << Stmt(op) << "\n\n";
     }
     // TODO(tiramisu): Suppoart Tuple
     user_assert(op->values.size() == 1) << "Expect 1D store (no tuple) in the Provide node for now.\n";
@@ -1164,15 +1167,11 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
            << ", &" << pipeline << ");\n";
     indent -= tab_size;
 
-    computation_list.insert(name);
-
-    //if (stage > 0) {
-        ss << do_indent();
-        ss << name << ".set_expression(" << print(op->values[0]) << ");\n";
-    //}
-
     stream << ss.str();
 
+    computation_list.insert(name);
+
+    string val_str = print(op->values[0]);
     if (!buffer_str.empty()) {
         for (const auto &str : buffer_str) {
             stream << do_indent();
@@ -1181,6 +1180,12 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
         buffer_str.clear();
     }
 
+    //if (stage > 0) {
+        stream << do_indent();
+        stream << name << ".set_expression(" << val_str << ");\n";
+    //}
+
+
     // TODO(tiramisu): The buffer dims should use the pure dims
     // 1-to-1 mapping to buffer
     string access_str = "{" + name + dim_str + "->" + buffer_name +
@@ -1188,7 +1193,36 @@ void CodeGen_Tiramisu::visit(const Provide *op) {
     stream << do_indent();
     stream << name << ".set_access(\"" << access_str << "\");\n";
 
+    stream << "\n";
+    stream << do_indent();
+    stream << "// Define compute order for constants of \"" << current_computation << "\".\n";
+    vector<string> constants = computation_constants[current_computation];
+    constants.insert(constants.begin(), prev_computation);
+
+    // t0.after(y_part_s0, y_part_s0.get_loop_level_number_from_dimension_name("y_part_s0_x"));
+    string loop_level = prev_computation.empty() ? "computation::root"
+        : prev_computation + ".get_loop_level_number_from_dimension_name(\"" + prev_innermost_dim + "\")";
+
+    for (int i = 1; i < (int)constants.size(); ++i) {
+        if (!constants[i-1].empty()) {
+            stream << do_indent();
+            stream << constants[i] << ".after(" << constants[i-1] << ", " << loop_level << ");\n";
+        }
+    }
+
+    if (!constants[constants.size()-1].empty()) {
+        stream << "\n";
+        stream << do_indent();
+        stream << "// Define compute level for \"" << op->name << "\".\n";
+        stream << do_indent();
+        stream << name << ".after(" << constants[constants.size()-1] << ", " << loop_level << ");\n";
+    }
+
     current_computation = old_computation;
+
+    internal_assert(!constants.empty());
+    prev_computation = prev_computation.empty() ? name : constants[constants.size()-1];
+    prev_innermost_dim = get_current_dim();
 }
 
 Expr CodeGen_Tiramisu::substitute_in_scope(Expr expr) const {

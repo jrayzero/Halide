@@ -175,7 +175,7 @@ int main(int argc, char **argv) {
                     .parallel(y, 32)
                     .vectorize(x, 8);
                 gPyramid[j].compute_root()
-                    .reorder(k, y)
+                    //.reorder(k, y)
                     .parallel(y, 8)
                     .vectorize(x, 8);
                     //.reorder_storage(x, k, y);

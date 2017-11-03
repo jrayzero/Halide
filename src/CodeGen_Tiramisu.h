@@ -96,6 +96,10 @@ private:
     std::vector<std::string> buffer_str;
     std::string current_computation;
 
+    std::string prev_computation;
+    std::string prev_innermost_dim;
+
+    std::map<std::string, std::vector<std::string>> computation_constants;
     std::map<std::string, int> duplicate_computation_count;
 
     std::string do_indent() const;
