@@ -487,6 +487,7 @@ struct Call : public ExprNode<Call> {
         count_leading_zeros,
         count_trailing_zeros,
         undef,
+      address_of,
         return_second,
         if_then_else,
         glsl_texture_load,

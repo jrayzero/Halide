@@ -1957,6 +1957,16 @@ void CodeGen_C::visit(const Call *op) {
         Type t = op->type.with_code(op->type.is_int() ? Type::UInt : op->type.code());
         Expr e = cast(t, select(a < b, b - a, a - b));
         rhs << print_expr(e);
+    } else if (op->is_intrinsic(Call::address_of)) {
+      const Load *l = op->args[0].as<Load>();
+      internal_assert(op->args.size() == 1 && l);
+      rhs << "(("
+          << print_type(l->type.element_of()) // index is in elements, not vectors.
+          << " *)"
+          << print_name(l->name)
+          << " + "
+          << print_expr(l->index)
+          << ")";
     } else if (op->is_intrinsic(Call::return_second)) {
         internal_assert(op->args.size() == 2);
         string arg0 = print_expr(op->args[0]);
