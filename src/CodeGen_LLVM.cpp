@@ -2976,7 +2976,7 @@ void CodeGen_LLVM::visit(const For *op) {
         builder->SetInsertPoint(loop_bb);
 
         // Make our phi node.
-        PHINode *phi = builder->CreatePHI(i32_t, 2);
+        PHINode *phi = builder->CreatePHI(min->getType(), 2);
         phi->addIncoming(min, preheader_bb);
 
         // Within the loop, the variable is equal to the phi value
@@ -2986,7 +2986,7 @@ void CodeGen_LLVM::visit(const For *op) {
         codegen(op->body);
 
         // Update the counter
-        Value *next_var = builder->CreateNSWAdd(phi, ConstantInt::get(i32_t, 1));
+        Value *next_var = builder->CreateNSWAdd(phi, ConstantInt::get(min->getType(), 1));
 
         // Add the back-edge to the phi node
         phi->addIncoming(next_var, builder->GetInsertBlock());
