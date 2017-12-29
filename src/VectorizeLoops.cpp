@@ -927,8 +927,8 @@ class VectorizeLoops : public IRMutator2 {
             }
 
             // Replace the var with a ramp within the body
-            Expr for_var = Variable::make(Int(32), for_loop->name);
-            Expr replacement = Ramp::make(for_loop->min, 1, extent->value);
+            Expr for_var = Variable::make(for_loop->min.type(), for_loop->name);
+            Expr replacement = Ramp::make(for_loop->min, cast(for_loop->min.type(), Expr(1)), extent->value);
             stmt = VectorSubs(for_loop->name, replacement, in_hexagon, target).mutate(for_loop->body);
         } else {
             stmt = IRMutator2::visit(for_loop);
