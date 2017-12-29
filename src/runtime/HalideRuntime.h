@@ -312,7 +312,7 @@ struct halide_type_t {
     }
 
     /** Size in bytes for a single element, even if width is not 1, of this type. */
-    HALIDE_ALWAYS_INLINE int bytes() const { return (bits + 7) / 8; }
+    HALIDE_ALWAYS_INLINE int64_t bytes() const { return (bits + 7) / 8; }
 #endif
 };
 
