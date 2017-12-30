@@ -3009,14 +3009,14 @@ void CodeGen_LLVM::visit(const For *op) {
 
         // Allocate a closure
         StructType *closure_t = build_closure_type(closure, buffer_t_type, context);
-        Value *ptr = create_alloca_at_entry(closure_t, 1);
+       Value *ptr = create_alloca_at_entry(closure_t, 1);
 
         // Fill in the closure
         pack_closure(closure_t, ptr, closure, symbol_table, buffer_t_type, builder);
 
         // Make a new function that does one iteration of the body of the loop
         llvm::Type *voidPointerType = (llvm::Type *)(i8_t->getPointerTo());
-        llvm::Type *args_t[] = {voidPointerType, i32_t, voidPointerType};
+        llvm::Type *args_t[] = {voidPointerType, i64_t, voidPointerType};
         FunctionType *func_t = FunctionType::get(i32_t, args_t, false);
         llvm::Function *containing_function = function;
         function = llvm::Function::Create(func_t, llvm::Function::InternalLinkage,
@@ -3055,7 +3055,12 @@ void CodeGen_LLVM::visit(const For *op) {
 
         // Next is the loop variable.
         ++iter;
-        sym_push(op->name, iterator_to_pointer(iter));
+        llvm::Value *_iter = iterator_to_pointer(iter);
+        //        sym_push(op->name, iterator_to_pointer(iter));
+        _iter->mutateType(min->getType());
+        sym_push(op->name, _iter);
+        
+        _iter->dump();
 
         // The closure pointer is the third and last argument.
         ++iter;
@@ -3073,7 +3078,8 @@ void CodeGen_LLVM::visit(const For *op) {
 
         // Move the builder back to the main function and call do_par_for
         builder->restoreIP(call_site);
-        llvm::Function *do_par_for = module->getFunction("halide_do_par_for");
+        //        llvm::Function *do_par_for = module->getFunction("halide_do_par_for");
+        llvm::Function *do_par_for = module->getFunction("halide_64bit_do_par_for");
         internal_assert(do_par_for) << "Could not find halide_do_par_for in initial module\n";
         #if LLVM_VERSION < 50
         do_par_for->setDoesNotAlias(5);
@@ -3084,7 +3090,19 @@ void CodeGen_LLVM::visit(const For *op) {
         ptr = builder->CreatePointerCast(ptr, i8_t->getPointerTo());
         Value *args[] = {user_context, function, min, extent, ptr};
         debug(4) << "Creating call to do_par_for\n";
+        std::cerr << "jess creating call" << std::endl;
+        //        do_par_for->dump();
+        for (auto arg : args)  {
+          std::cerr << "JESS arg: " << std::endl;
+          arg->getType()->dump();
+        }
+        for (int u = 0; u < 4; u++) {
+          std::cerr << "JESS param type: " << std::endl;
+          do_par_for->getFunctionType()->getParamType(u)->dump();
+        }
+        
         Value *result = builder->CreateCall(do_par_for, args);
+        std::cerr << "jess created call" << std::endl;
 
         debug(3) << "Leaving parallel for loop over " << op->name << "\n";
 

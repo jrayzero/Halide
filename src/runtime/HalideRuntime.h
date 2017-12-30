@@ -122,9 +122,13 @@ extern void halide_mutex_destroy(struct halide_mutex *mutex);
  */
 //@{
 typedef int (*halide_task_t)(void *user_context, int task_number, uint8_t *closure);
+typedef int (*halide_64bit_task_t)(void *user_context, size_t task_number, uint8_t *closure);
 extern int halide_do_par_for(void *user_context,
                              halide_task_t task,
                              int min, int size, uint8_t *closure);
+extern int halide_64bit_do_par_for(void *user_context,
+                             halide_64bit_task_t task,
+                             size_t min, size_t size, uint8_t *closure);
 extern void halide_shutdown_thread_pool();
 //@}
 
@@ -139,6 +143,8 @@ extern halide_do_par_for_t halide_set_custom_do_par_for(halide_do_par_for_t do_p
 typedef int (*halide_do_task_t)(void *, halide_task_t, int, uint8_t *);
 extern halide_do_task_t halide_set_custom_do_task(halide_do_task_t do_task);
 extern int halide_do_task(void *user_context, halide_task_t f, int idx,
+                          uint8_t *closure);
+extern int halide_64bit_do_task(void *user_context, halide_64bit_task_t f, size_t idx,
                           uint8_t *closure);
 //@}
 

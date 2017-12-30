@@ -81,6 +81,14 @@ struct halide_gcd_job {
     int exit_status;
 };
 
+struct halide_64bit_gcd_job {
+    int (*f)(void *, size_t, uint8_t *);
+    void *user_context;
+    uint8_t *closure;
+    size_t min;
+    int exit_status;
+};
+
 // Take a call from grand-central-dispatch's parallel for loop, and
 // make a call to Halide's do task
 WEAK void halide_do_gcd_task(void *job, size_t idx) {
@@ -97,6 +105,12 @@ WEAK int halide_default_do_task(void *user_context, int (*f)(void *, int, uint8_
                                 int idx, uint8_t *closure) {
     return f(user_context, idx, closure);
 }
+
+WEAK int halide_64bit_default_do_task(void *user_context, int (*f)(void *, size_t, uint8_t *),
+                                size_t idx, uint8_t *closure) {
+    return f(user_context, idx, closure);
+}
+
 
 WEAK int halide_default_do_par_for(void *user_context, halide_task_t f,
                                    int min, int size, uint8_t *closure) {
@@ -122,6 +136,32 @@ WEAK int halide_default_do_par_for(void *user_context, halide_task_t f,
     dispatch_apply_f(size, dispatch_get_global_queue(0, 0), &job, &halide_do_gcd_task);
     return job.exit_status;
 }
+
+WEAK int halide_64bit_default_do_par_for(void *user_context, halide_64bit_task_t f,
+                                   size_t min, size_t size, uint8_t *closure) {
+    if (custom_num_threads == 1 || size == 1) {
+        // GCD doesn't really allow us to limit the threads,
+        // so ensure that there's no parallelism by executing serially.
+        for (size_t x = min; x < min + size; x++) {
+            int result = halide_64bit_do_task(user_context, f, x, closure);
+            if (result) {
+                return result;
+            }
+        }
+        return 0;
+    }
+
+    halide_64bit_gcd_job job;
+    job.f = f;
+    job.user_context = user_context;
+    job.closure = closure;
+    job.min = min;
+    job.exit_status = 0;
+
+    dispatch_apply_f(size, dispatch_get_global_queue(0, 0), &job, &halide_do_gcd_task);
+    return job.exit_status;
+}
+
 
 }  // extern "C"
 
@@ -186,5 +226,16 @@ WEAK int halide_do_par_for(void *user_context, halide_task_t f,
                            int min, int size, uint8_t *closure) {
   return (*custom_do_par_for)(user_context, f, min, size, closure);
 }
+
+WEAK int halide_64bit_do_task(void *user_context, halide_64bit_task_t f, size_t idx,
+                        uint8_t *closure) {
+    return halide_64bit_default_do_task(user_context, f, idx, closure);
+}
+
+  WEAK int halide_64bit_do_par_for(void *user_context, halide_64bit_task_t f,
+                           size_t min, size_t size, uint8_t *closure) {
+  return halide_64bit_default_do_par_for(user_context, f, min, size, closure);
+}
+
 
 }

@@ -18,6 +18,23 @@ WEAK int halide_default_do_par_for(void *user_context, halide_task_t f,
     return 0;
 }
 
+WEAK int halide_64bit_default_do_task(void *user_context, halide_64bit_task_t f, size_t idx,
+                                uint8_t *closure) {
+    return f(user_context, idx, closure);
+}
+
+WEAK int halide_64bit_default_do_par_for(void *user_context, halide_64bit_task_t f,
+                                   size_t min, size_t size, uint8_t *closure) {
+    for (size_t x = min; x < min + size; x++) {
+        int result = halide_64bit_do_task(user_context, f, x, closure);
+        if (result) {
+            return result;
+        }
+    }
+    return 0;
+}
+
+
 }
 
 namespace Halide { namespace Runtime { namespace Internal {
@@ -74,6 +91,16 @@ WEAK int halide_do_task(void *user_context, halide_task_t f, int idx,
 WEAK int halide_do_par_for(void *user_context, halide_task_t f,
                            int min, int size, uint8_t *closure) {
   return (*custom_do_par_for)(user_context, f, min, size, closure);
+}
+
+WEAK int halide_64bit_do_task(void *user_context, halide_64bit_task_t f, size_t idx,
+                        uint8_t *closure) {
+    return halide_64bit_default_do_task(user_context, f, idx, closure);
+}
+
+WEAK int halide_64bit_do_par_for(void *user_context, halide_64bit_task_t f,
+                           size_t min, size_t size, uint8_t *closure) {
+  return halide_64bit_default_do_par_for(user_context, f, min, size, closure);
 }
 
 }  // extern "C"

@@ -45,8 +45,8 @@ LLVM_SYSTEM_LIBS=$(shell ${LLVM_CONFIG} --system-libs --link-static | sed -e 's/
 LLVM_AS = $(LLVM_BINDIR)/llvm-as
 LLVM_NM = $(LLVM_BINDIR)/llvm-nm
 LLVM_CXX_FLAGS = -std=c++11  $(filter-out -O% -g -fomit-frame-pointer -pedantic -W% -W, $(shell $(LLVM_CONFIG) --cxxflags | sed -e 's/\\/\//g' -e 's/\([a-zA-Z]\):/\/\1/g;s/-D/ -D/g;s/-O/ -O/g'))
-OPTIMIZE ?= -O3
-OPTIMIZE_FOR_BUILD_TIME ?= -O0
+OPTIMIZE ?= -O3 -g
+OPTIMIZE_FOR_BUILD_TIME ?= -O3 -g
 
 LLVM_VERSION_TIMES_10 = $(shell $(LLVM_CONFIG) --version | cut -b 1,3)
 
@@ -612,10 +612,6 @@ RUNTIME_CPP_COMPONENTS = \
   prefetch \
   profiler \
   profiler_inlined \
-  qurt_allocator \
-  qurt_hvx \
-  qurt_init_fini \
-  qurt_thread_pool \
   runtime_api \
   ssp \
   thread_pool \
@@ -630,6 +626,10 @@ RUNTIME_CPP_COMPONENTS = \
   windows_threads \
   write_debug_image \
   x86_cpu_features
+#  qurt_allocator \
+#  qurt_hvx \
+#  qurt_init_fini \
+#  qurt_thread_pool \
 
 RUNTIME_LL_COMPONENTS = \
   aarch64 \
@@ -653,8 +653,8 @@ RUNTIME_EXPORTED_INCLUDES = $(INCLUDE_DIR)/HalideRuntime.h \
                             $(INCLUDE_DIR)/HalideRuntimeOpenGL.h \
                             $(INCLUDE_DIR)/HalideRuntimeOpenGLCompute.h \
                             $(INCLUDE_DIR)/HalideRuntimeMetal.h	\
-                            $(INCLUDE_DIR)/HalideRuntimeQurt.h \
                             $(INCLUDE_DIR)/HalideBuffer.h
+#                            $(INCLUDE_DIR)/HalideRuntimeQurt.h \
 
 INITIAL_MODULES = $(RUNTIME_CPP_COMPONENTS:%=$(BUILD_DIR)/initmod.%_32.o) \
                   $(RUNTIME_CPP_COMPONENTS:%=$(BUILD_DIR)/initmod.%_64.o) \
@@ -745,7 +745,7 @@ RUNTIME_TRIPLE_64 = "le64-unknown-unknown-unknown"
 # win32 is tied to x86 due to the use of the __stdcall calling convention
 RUNTIME_TRIPLE_WIN_32 = "i386-unknown-unknown-unknown"
 
-RUNTIME_CXX_FLAGS = -O3 -fno-vectorize -ffreestanding -fno-blocks -fno-exceptions -fno-unwind-tables
+RUNTIME_CXX_FLAGS = -O3 -g -fno-vectorize -ffreestanding -fno-blocks -fno-exceptions -fno-unwind-tables
 $(BUILD_DIR)/initmod.%_64.ll: $(SRC_DIR)/runtime/%.cpp $(BUILD_DIR)/clang_ok
 	@mkdir -p $(@D)
 	$(CLANG) $(CXX_WARNING_FLAGS) $(RUNTIME_CXX_FLAGS) -m64 -target $(RUNTIME_TRIPLE_64) -DCOMPILING_HALIDE_RUNTIME -DBITS_64 -emit-llvm -S $(SRC_DIR)/runtime/$*.cpp -o $@ -MMD -MP -MF $(BUILD_DIR)/initmod.$*_64.d
@@ -768,7 +768,7 @@ $(BUILD_DIR)/initmod.windows_%_32_debug.ll: $(SRC_DIR)/runtime/windows_%.cpp $(B
 
 $(BUILD_DIR)/initmod.%_32_debug.ll: $(SRC_DIR)/runtime/%.cpp $(BUILD_DIR)/clang_ok
 	@mkdir -p $(@D)
-	$(CLANG) $(CXX_WARNING_FLAGS) -g -DDEBUG_RUNTIME -O3 $(RUNTIME_CXX_FLAGS) -m32 -target $(RUNTIME_TRIPLE_32) -DCOMPILING_HALIDE_RUNTIME -DBITS_32 -emit-llvm -S $(SRC_DIR)/runtime/$*.cpp -o $@ -MMD -MP -MF $(BUILD_DIR)/initmod.$*_32_debug.d
+	$(CLANG) $(CXX_WARNING_FLAGS) -g -DDEBUG_RUNTIME -O3 -g $(RUNTIME_CXX_FLAGS) -m32 -target $(RUNTIME_TRIPLE_32) -DCOMPILING_HALIDE_RUNTIME -DBITS_32 -emit-llvm -S $(SRC_DIR)/runtime/$*.cpp -o $@ -MMD -MP -MF $(BUILD_DIR)/initmod.$*_32_debug.d
 
 $(BUILD_DIR)/initmod.%_ll.ll: $(SRC_DIR)/runtime/%.ll
 	@mkdir -p $(@D)
@@ -1041,12 +1041,12 @@ $(BIN_DIR)/%.generator: $(BUILD_DIR)/GenGen.o $(BIN_DIR)/libHalide.$(SHARED_EXT)
 # of the target is used.
 $(BUILD_DIR)/external_code_extern_bitcode_32.cpp : $(ROOT_DIR)/test/generator/external_code_extern.cpp $(BIN_DIR)/binary2cpp
 	@mkdir -p $(@D)
-	$(CLANG) $(CXX_WARNING_FLAGS) -O3 -c -m32 -target $(RUNTIME_TRIPLE_32) -emit-llvm $< -o $(BUILD_DIR)/external_code_extern_32.bc || echo -n > $(BUILD_DIR)/external_code_extern_32.bc
+	$(CLANG) $(CXX_WARNING_FLAGS) -O3 -g -c -m32 -target $(RUNTIME_TRIPLE_32) -emit-llvm $< -o $(BUILD_DIR)/external_code_extern_32.bc || echo -n > $(BUILD_DIR)/external_code_extern_32.bc
 	./$(BIN_DIR)/binary2cpp external_code_extern_bitcode_32 < $(BUILD_DIR)/external_code_extern_32.bc > $@
 
 $(BUILD_DIR)/external_code_extern_bitcode_64.cpp : $(ROOT_DIR)/test/generator/external_code_extern.cpp $(BIN_DIR)/binary2cpp
 	@mkdir -p $(@D)
-	$(CLANG) $(CXX_WARNING_FLAGS) -O3 -c -m64 -target $(RUNTIME_TRIPLE_64) -emit-llvm $< -o $(BUILD_DIR)/external_code_extern_64.bc || echo -n > $(BUILD_DIR)/external_code_extern_64.bc
+	$(CLANG) $(CXX_WARNING_FLAGS) -O3 -g -c -m64 -target $(RUNTIME_TRIPLE_64) -emit-llvm $< -o $(BUILD_DIR)/external_code_extern_64.bc || echo -n > $(BUILD_DIR)/external_code_extern_64.bc
 	./$(BIN_DIR)/binary2cpp external_code_extern_bitcode_64 < $(BUILD_DIR)/external_code_extern_64.bc > $@
 
 $(BUILD_DIR)/external_code_extern_cpp_source.cpp : $(ROOT_DIR)/test/generator/external_code_extern.cpp $(BIN_DIR)/binary2cpp

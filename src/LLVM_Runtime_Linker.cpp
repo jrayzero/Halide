@@ -114,10 +114,10 @@ DECLARE_CPP_INITMOD(posix_threads)
 DECLARE_CPP_INITMOD(prefetch)
 DECLARE_CPP_INITMOD(profiler)
 DECLARE_CPP_INITMOD(profiler_inlined)
-DECLARE_CPP_INITMOD(qurt_allocator)
-DECLARE_CPP_INITMOD(qurt_hvx)
-DECLARE_CPP_INITMOD(qurt_init_fini)
-DECLARE_CPP_INITMOD(qurt_thread_pool)
+//DECLARE_CPP_INITMOD(qurt_allocator)
+//DECLARE_CPP_INITMOD(qurt_hvx)
+//DECLARE_CPP_INITMOD(qurt_init_fini)
+//DECLARE_CPP_INITMOD(qurt_thread_pool)
 DECLARE_CPP_INITMOD(runtime_api)
 DECLARE_CPP_INITMOD(ssp)
 DECLARE_CPP_INITMOD(thread_pool)
@@ -680,9 +680,9 @@ std::unique_ptr<llvm::Module> get_initial_module_for_target(Target t, llvm::LLVM
                 modules.push_back(get_initmod_posix_tempfile(c, bits_64, debug));
                 modules.push_back(get_initmod_gcd_thread_pool(c, bits_64, debug));
             } else if (t.os == Target::QuRT) {
-                modules.push_back(get_initmod_qurt_allocator(c, bits_64, debug));
-                modules.push_back(get_initmod_qurt_thread_pool(c, bits_64, debug));
-                modules.push_back(get_initmod_qurt_init_fini(c, bits_64, debug));
+              //                modules.push_back(get_initmod_qurt_allocator(c, bits_64, debug));
+              //                modules.push_back(get_initmod_qurt_thread_pool(c, bits_64, debug));
+              //                modules.push_back(get_initmod_qurt_init_fini(c, bits_64, debug));
             } else if (t.os == Target::NoOS) {
                 // The OS-specific symbols provided by the modules
                 // above are expected to be provided by the containing
@@ -690,7 +690,7 @@ std::unique_ptr<llvm::Module> get_initial_module_for_target(Target t, llvm::LLVM
                 // NoRuntime, as OS-agnostic modules like tracing are
                 // still included below.
                 if (t.arch == Target::Hexagon) {
-                    modules.push_back(get_initmod_qurt_allocator(c, bits_64, debug));
+                  //                    modules.push_back(get_initmod_qurt_allocator(c, bits_64, debug));
                 }
                 modules.push_back(get_initmod_fake_thread_pool(c, bits_64, debug));
             }
@@ -747,7 +747,7 @@ std::unique_ptr<llvm::Module> get_initial_module_for_target(Target t, llvm::LLVM
             if (t.arch != Target::MIPS && t.os != Target::NoOS &&
                 t.os != Target::QuRT) {
                 // MIPS doesn't support the atomics the profiler requires.
-                modules.push_back(get_initmod_profiler(c, bits_64, debug));
+              modules.push_back(get_initmod_profiler(c, bits_64, debug));
             }
 
             if (t.has_feature(Target::MSAN)) {
@@ -780,7 +780,7 @@ std::unique_ptr<llvm::Module> get_initial_module_for_target(Target t, llvm::LLVM
                 modules.push_back(get_initmod_powerpc_ll(c));
             }
             if (t.arch == Target::Hexagon) {
-                modules.push_back(get_initmod_qurt_hvx(c, bits_64, debug));
+              //                modules.push_back(get_initmod_qurt_hvx(c, bits_64, debug));
                 if (t.has_feature(Target::HVX_64)) {
                     modules.push_back(get_initmod_hvx_64_ll(c));
                 } else if (t.has_feature(Target::HVX_128)) {
