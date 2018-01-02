@@ -839,6 +839,14 @@ WEAK int halide_cuda_device_sync(void *user_context, struct halide_buffer_t *) {
     return 0;
 }
 
+  WEAK int halide_launch_cuda_kernel(CUfunction f,int blocksX, int blocksY, int blocksZ,
+                         int threadsX, int threadsY, int threadsZ,
+                         int shared_mem_bytes, void **translated_args) {
+    //    error(user_context) << "override this launch kernel function";
+    exit(20);
+    return -1;
+  }
+
 WEAK int halide_cuda_run(void *user_context,
                          void *state_ptr,
                          const char* entry_name,
@@ -912,30 +920,42 @@ WEAK int halide_cuda_run(void *user_context,
         }
     }
 
-    CUstream stream = NULL;
+    halide_launch_cuda_kernel(f,
+                              blocksX,  blocksY,  blocksZ,
+                              threadsX, threadsY, threadsZ,
+                              shared_mem_bytes,
+                              translated_args);
+      
+      //    CUstream stream = (CUstream)get_kernel_stream();//*((CUstream*)get_kernel_stream());
+      //    debug(user_context) << "    Here's the stream as gotten from halide" << stream;
+    //    CUstream stream;
+    //    cuStreamCreate(&stream, 0x1);
+      //    if (cuStreamSynchronize == NULL) {
+      //      error(user_context) << "No streams";
+      //    }
     // We use whether this routine was defined in the cuda driver library
     // as a test for streams support in the cuda implementation.
-    if (cuStreamSynchronize != NULL) {
-        int result = halide_cuda_get_stream(user_context, ctx.context, &stream);
-        if (result != 0) {
-            error(user_context) << "CUDA: In halide_cuda_run, halide_cuda_get_stream returned " << result << "\n";
-        }
-    }
+    //    if (cuStreamSynchronize != NULL) {
+    //        int result = halide_cuda_get_stream(user_context, ctx.context, &stream);
+    //        if (result != 0) {
+    //            error(user_context) << "CUDA: In halide_cuda_run, halide_cuda_get_stream returned " << result << "\n";
+    //        }
+    //    }
 
-    err = cuLaunchKernel(f,
-                         blocksX,  blocksY,  blocksZ,
-                         threadsX, threadsY, threadsZ,
-                         shared_mem_bytes,
-                         stream,
-                         translated_args,
-                         NULL);
+  //    err = cuLaunchKernel(f,
+  //                         blocksX,  blocksY,  blocksZ,
+  //                         threadsX, threadsY, threadsZ,
+  //                         shared_mem_bytes,
+  //                         stream,
+  ///                         translated_args,
+                                           //                         NULL);
     free(dev_handles);
     free(translated_args);
-    if (err != CUDA_SUCCESS) {
-        error(user_context) << "CUDA: cuLaunchKernel failed: "
-                            << get_error_name(err);
-        return err;
-    }
+    //    if (err != CUDA_SUCCESS) {
+    //        error(user_context) << "CUDA: cuLaunchKernel failed: "
+    //                            << get_error_name(err) << " " << stream;
+    //        return err;
+    //    }
 
     #ifdef DEBUG_RUNTIME
     err = cuCtxSynchronize();
@@ -949,6 +969,19 @@ WEAK int halide_cuda_run(void *user_context,
     #endif
     return 0;
 }
+
+  CUstream *kernel_stream = NULL;
+WEAK void *get_kernel_stream() {
+    exit(19); // don't call this one
+    if (kernel_stream == NULL) {
+      CUstream ks;
+      if (cuStreamCreate(&ks, 0x1) != 0) {
+        exit(19);
+      }
+      *kernel_stream = ks;
+    }
+    return (void*)kernel_stream;
+  }
 
 WEAK int halide_cuda_device_and_host_malloc(void *user_context, struct halide_buffer_t *buf) {
     return halide_default_device_and_host_malloc(user_context, buf, &cuda_device_interface);

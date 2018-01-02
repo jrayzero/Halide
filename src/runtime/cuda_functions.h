@@ -47,6 +47,7 @@ CUDA_FN(CUresult, cuLaunchKernel, (CUfunction f,
                                    CUstream hStream,
                                    void **kernelParams,
                                    void **extra));
+CUDA_FN(CUresult, cuStreamCreate, (CUstream* phStream, unsigned int  Flags));
 CUDA_FN(CUresult, cuCtxSynchronize, ());
 
 CUDA_FN_4000(CUresult, cuCtxPushCurrent, cuCtxPushCurrent_v2, (CUcontext ctx));

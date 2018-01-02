@@ -31,6 +31,9 @@ extern int halide_cuda_run(void *user_context,
                            float* vertex_buffer,
                            int num_coords_dim0,
                            int num_coords_dim1);
+
+  extern void *get_kernel_stream();
+
 // @}
 
 /** Set the underlying cuda device poiner for a buffer. The device
