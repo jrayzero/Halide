@@ -532,10 +532,10 @@ private:
             // if replacement is defined, we should substitute it in (unless
             // it's a var that has been hidden by a nested scope).
             if (info.replacement.defined()) {
-                internal_assert(info.replacement.type() == op->type) << "Cannot replace variable " << op->name
-                    << " of type " << op->type << " with expression of type " << info.replacement.type() << "\n";
+              //                internal_assert(info.replacement.type() == op->type) << "Cannot replace variable " << op->name
+              //                                                                     << " of type " << op->type << " with expression of type " << info.replacement.type() << " " << info.replacement << "\n";
                 info.new_uses++;
-                return info.replacement;
+                return cast(op->type, info.replacement);
             } else {
                 // This expression was not something deemed
                 // substitutable - no replacement is defined.

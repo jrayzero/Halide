@@ -1,4 +1,3 @@
-
 /*namespace Halide { namespace Runtime { namespace Internal {
 
 struct work {
@@ -468,7 +467,7 @@ WEAK int halide_64bit_default_do_par_for(void *user_context, halide_64bit_task_t
         if (!work_64bit_queue.desired_num_threads) {
             work_64bit_queue.desired_num_threads = default_desired_num_threads();
         }
-        work_64bit_queue.desired_num_threads = clamp_num_threads(work_64bit_queue.desired_num_threads);
+        work_64bit_queue.desired_num_threads = 20;//clamp_num_threads(work_64bit_queue.desired_num_threads);
         work_64bit_queue.threads_created = 0;
 
         // Everyone starts on the a team.

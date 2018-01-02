@@ -2077,7 +2077,6 @@ void CodeGen_LLVM::codegen_predicated_vector_load(const Load *op) {
 void CodeGen_LLVM::visit(const Call *op) {
     internal_assert(op->is_extern() || op->is_intrinsic())
         << "Can only codegen extern calls and intrinsics\n";
-
     // Some call nodes are actually injected at various stages as a
     // cue for llvm to generate particular ops. In general these are
     // handled in the standard library, but ones with e.g. varying
@@ -2786,6 +2785,9 @@ void CodeGen_LLVM::visit(const Call *op) {
             }
             call->setDoesNotThrow();
             value = call;
+            if (name == "llvm.nvvm.read.ptx.sreg.tid.x" || name == "llvm.nvvm.read.ptx.sreg.tid.y" || name == "llvm.nvvm.read.ptx.sreg.tid.z") {
+              value = builder->CreateIntCast(call, i64_t, true);
+            }
         } else {
 
             // Check if a vector version of the function already
@@ -3090,19 +3092,8 @@ void CodeGen_LLVM::visit(const For *op) {
         ptr = builder->CreatePointerCast(ptr, i8_t->getPointerTo());
         Value *args[] = {user_context, function, min, extent, ptr};
         debug(4) << "Creating call to do_par_for\n";
-        std::cerr << "jess creating call" << std::endl;
-        //        do_par_for->dump();
-        for (auto arg : args)  {
-          std::cerr << "JESS arg: " << std::endl;
-          arg->getType()->dump();
-        }
-        for (int u = 0; u < 4; u++) {
-          std::cerr << "JESS param type: " << std::endl;
-          do_par_for->getFunctionType()->getParamType(u)->dump();
-        }
         
         Value *result = builder->CreateCall(do_par_for, args);
-        std::cerr << "jess created call" << std::endl;
 
         debug(3) << "Leaving parallel for loop over " << op->name << "\n";
 

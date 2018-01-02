@@ -138,7 +138,7 @@ class CanonicalizeGPUVars : public IRMutator2 {
             if (name != op->name) {
                 // Canonicalize the GPU for loop name
                 gpu_vars.emplace(op->name, name);
-                Expr new_var = Variable::make(Int(32), name);
+                Expr new_var = Variable::make(Int(64), name);
                 min = substitute(op->name, new_var, min);
                 extent = substitute(op->name, new_var, extent);
                 body = substitute(op->name, new_var, body);
@@ -162,7 +162,7 @@ class CanonicalizeGPUVars : public IRMutator2 {
 
         string name = canonicalize_let(op->name);
         if (name != op->name) {
-            Expr new_var = Variable::make(Int(32), name);
+            Expr new_var = Variable::make(Int(64), name);
             value = substitute(op->name, new_var, value);
             body = substitute(op->name, new_var, body);
         }

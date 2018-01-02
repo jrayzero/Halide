@@ -88,8 +88,8 @@ class ExtractBlockSize : public IRVisitor {
 
         Scope<Interval> scope;
         scope.push(op->name,
-                   Interval(Variable::make(Int(32), op->name + ".loop_min"),
-                            Variable::make(Int(32), op->name + ".loop_max")));
+                   Interval(Variable::make(Int(64), op->name + ".loop_min"),
+                            Variable::make(Int(64), op->name + ".loop_max")));
         for (int i = 0; i < 4; i++) {
             if (block_extent[i].defined() &&
                 expr_uses_var(block_extent[i], op->name)) {
@@ -203,7 +203,7 @@ class ReplaceForWithIf : public IRMutator2 {
 
             Stmt body = mutate(op->body);
 
-            Expr var = Variable::make(Int(32), "." + thread_names[dim]);
+            Expr var = Variable::make(Int(64), "." + thread_names[dim]);
             body = substitute(op->name, var + op->min, body);
 
             if (equal(op->extent, block_size.extent(dim))) {
@@ -288,8 +288,8 @@ class ExtractSharedAllocations : public IRMutator2 {
 
             // Expand any new shared allocations found in the body using the loop bounds.
             Scope<Interval> scope;
-            scope.push(op->name, Interval(Variable::make(Int(32), op->name + ".loop_min"),
-                                          Variable::make(Int(32), op->name + ".loop_max")));
+            scope.push(op->name, Interval(Variable::make(Int(64), op->name + ".loop_min"),
+                                          Variable::make(Int(64), op->name + ".loop_max")));
 
             // Expand the inner allocations using the loop bounds.
             for (SharedAllocation &s : allocations) {
@@ -692,7 +692,7 @@ class ZeroGPULoopMins : public IRMutator2 {
         if (CodeGen_GPU_Dev::is_gpu_var(op->name) && !is_zero(op->min)) {
             op = stmt.as<For>();
             internal_assert(op);
-            Expr adjusted = Variable::make(Int(32), op->name) + op->min;
+            Expr adjusted = Variable::make(Int(64), op->name) + op->min;
             Stmt body = substitute(op->name, adjusted, op->body);
             stmt = For::make(op->name, 0, op->extent, op->for_type, op->device_api, body);
         }
