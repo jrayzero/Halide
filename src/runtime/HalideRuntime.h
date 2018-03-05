@@ -312,7 +312,7 @@ struct halide_type_t {
     }
 
     /** Size in bytes for a single element, even if width is not 1, of this type. */
-    HALIDE_ALWAYS_INLINE int bytes() const { return (bits + 7) / 8; }
+    HALIDE_ALWAYS_INLINE int64_t bytes() const { return (bits + 7) / 8; }
 #endif
 };
 
@@ -1100,14 +1100,14 @@ extern int halide_default_can_use_target_features(uint64_t features);
 
 
 typedef struct halide_dimension_t {
-    int32_t min, extent, stride;
+    int64_t min, extent, stride;
 
     // Per-dimension flags. None are defined yet (This is reserved for future use).
     uint32_t flags;
 
 #ifdef __cplusplus
     HALIDE_ALWAYS_INLINE halide_dimension_t() : min(0), extent(0), stride(0), flags(0) {}
-    HALIDE_ALWAYS_INLINE halide_dimension_t(int32_t m, int32_t e, int32_t s, uint32_t f = 0) :
+    HALIDE_ALWAYS_INLINE halide_dimension_t(int64_t m, int64_t e, int64_t s, uint64_t f = 0) :
         min(m), extent(e), stride(s), flags(f) {}
 
     HALIDE_ALWAYS_INLINE bool operator==(const halide_dimension_t &other) const {
