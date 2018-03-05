@@ -784,6 +784,7 @@ Call::ConstString Call::bitwise_xor = "bitwise_xor";
 Call::ConstString Call::bitwise_or = "bitwise_or";
 Call::ConstString Call::shift_left = "shift_left";
 Call::ConstString Call::shift_right = "shift_right";
+Call::ConstString Call::address_of = "address_of";
 Call::ConstString Call::abs = "abs";
 Call::ConstString Call::absd = "absd";
 Call::ConstString Call::lerp = "lerp";

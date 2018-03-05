@@ -1182,6 +1182,22 @@ private:
 
     void visit(const Call *op) {
         if (!consider_calls) return;
+	
+	if (op->is_intrinsic(Call::address_of)) {
+	    // Visit the args of the inner call
+	    internal_assert(op->args.size() == 1);
+	    const Call *c = op->args[0].as<Call>();
+	    if (c) {
+	        for (size_t i = 0; i < c->args.size(); i++) {
+		  c->args[i].accept(this);
+		}
+	    } else {
+	      const Load *l = op->args[0].as<Load>();
+	      internal_assert(l);
+	      l->index.accept(this);	      
+	    }
+	    return ;
+	}
 
         if (op->is_intrinsic(Call::if_then_else)) {
             assert(op->args.size() == 3);
