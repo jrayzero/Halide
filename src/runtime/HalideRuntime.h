@@ -108,6 +108,7 @@ struct halide_mutex {
 extern void halide_mutex_lock(struct halide_mutex *mutex);
 extern void halide_mutex_unlock(struct halide_mutex *mutex);
 extern void halide_mutex_destroy(struct halide_mutex *mutex);
+
 //@}
 
 /** Define halide_do_par_for to replace the default thread pool
@@ -126,12 +127,19 @@ extern int halide_do_par_for(void *user_context,
                              halide_task_t task,
                              int min, int size, uint8_t *closure);
 extern void halide_shutdown_thread_pool();
+typedef int (*halide_task_64_t)(void *user_context, int64_t task_number, uint8_t *closure);
+extern int halide_do_par_for_64(void *user_context,
+                             halide_task_t task,
+                             int64_t min, int64_t size, uint8_t *closure);
+extern void halide_shutdown_thread_pool_64();
 //@}
 
 /** Set a custom method for performing a parallel for loop. Returns
  * the old do_par_for handler. */
 typedef int (*halide_do_par_for_t)(void *, halide_task_t, int, int, uint8_t*);
 extern halide_do_par_for_t halide_set_custom_do_par_for(halide_do_par_for_t do_par_for);
+typedef int (*halide_do_par_for_64_t)(void *, halide_task_64_t, int64_t, int64_t, uint8_t*);
+extern halide_do_par_for_64_t halide_set_custom_do_par_for_64(halide_do_par_for_64_t do_par_for);
 
 /** If you use the default do_par_for, you can still set a custom
  * handler to perform each individual task. Returns the old handler. */
@@ -140,6 +148,10 @@ typedef int (*halide_do_task_t)(void *, halide_task_t, int, uint8_t *);
 extern halide_do_task_t halide_set_custom_do_task(halide_do_task_t do_task);
 extern int halide_do_task(void *user_context, halide_task_t f, int idx,
                           uint8_t *closure);
+typedef int (*halide_do_task_64_t)(void *, halide_task_64_t, int64_t, uint8_t *);
+extern halide_do_task_64_t halide_set_custom_do_task_64(halide_do_task_64_t do_task);
+extern int halide_do_task_64(void *user_context, halide_task_64_t f, int64_t idx,
+                             uint8_t *closure);
 //@}
 
 /** The default versions of do_task and do_par_for. Can be convenient
@@ -149,6 +161,10 @@ extern int halide_default_do_par_for(void *user_context,
                                      halide_task_t task,
                                      int min, int size, uint8_t *closure);
 extern int halide_default_do_task(void *user_context, halide_task_t f, int idx,
+                                  uint8_t *closure);
+extern int halide_default_do_par_for_64(void *user_context, halide_task_64_t task,
+                                     int64_t min, int64_t size, uint8_t *closure);
+extern int halide_default_do_task_64(void *user_context, halide_task_64_t f, int64_t idx,
                                   uint8_t *closure);
 // @}
 
@@ -179,6 +195,7 @@ extern void halide_join_thread(struct halide_thread *);
  * passed to halide_set_num_threads().)
  */
 extern int halide_set_num_threads(int n);
+extern int halide_set_num_threads_64(int n);
 
 /** Halide calls these functions to allocate and free memory. To
  * replace in AOT code, use the halide_set_custom_malloc and

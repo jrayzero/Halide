@@ -226,6 +226,7 @@ set(RUNTIME_HEADER_FILES
   HalideRuntimeOpenGLCompute.h
   HalideRuntimeQurt.h
   HalideBuffer.h
+        thread_pool_common.h
 )
 
 foreach (i ${RUNTIME_HEADER_FILES})
