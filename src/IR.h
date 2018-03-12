@@ -21,6 +21,9 @@
 namespace Halide {
 namespace Internal {
 
+extern bool always_upcast;
+extern void set_always_upcast();
+
 /** The actual IR nodes begin here. Remember that all the Expr
  * nodes also have a public "type" property */
 
@@ -37,7 +40,7 @@ struct Cast : public ExprNode<Cast> {
 struct Add : public ExprNode<Add> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::Add;
 };
@@ -46,7 +49,7 @@ struct Add : public ExprNode<Add> {
 struct Sub : public ExprNode<Sub> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::Sub;
 };
@@ -55,7 +58,7 @@ struct Sub : public ExprNode<Sub> {
 struct Mul : public ExprNode<Mul> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::Mul;
 };
@@ -64,7 +67,7 @@ struct Mul : public ExprNode<Mul> {
 struct Div : public ExprNode<Div> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::Div;
 };
@@ -75,7 +78,7 @@ struct Div : public ExprNode<Div> {
 struct Mod : public ExprNode<Mod> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::Mod;
 };
@@ -86,6 +89,8 @@ struct Min : public ExprNode<Min> {
 
     EXPORT static Expr make(Expr a, Expr b);
 
+    EXPORT static Expr make2(Expr a, Expr b, bool upcast);
+
     static const IRNodeType _node_type = IRNodeType::Min;
 };
 
@@ -95,6 +100,9 @@ struct Max : public ExprNode<Max> {
 
     EXPORT static Expr make(Expr a, Expr b);
 
+    // Need a separate name because otherwise it breaks a call to FoldLeft
+    EXPORT static Expr make2(Expr a, Expr b, bool upcast);
+
     static const IRNodeType _node_type = IRNodeType::Max;
 };
 
@@ -102,7 +110,7 @@ struct Max : public ExprNode<Max> {
 struct EQ : public ExprNode<EQ> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::EQ;
 };
@@ -111,7 +119,7 @@ struct EQ : public ExprNode<EQ> {
 struct NE : public ExprNode<NE> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::NE;
 };
@@ -120,7 +128,7 @@ struct NE : public ExprNode<NE> {
 struct LT : public ExprNode<LT> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::LT;
 };
@@ -129,7 +137,7 @@ struct LT : public ExprNode<LT> {
 struct LE : public ExprNode<LE> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::LE;
 };
@@ -138,7 +146,7 @@ struct LE : public ExprNode<LE> {
 struct GT : public ExprNode<GT> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::GT;
 };
@@ -147,7 +155,7 @@ struct GT : public ExprNode<GT> {
 struct GE : public ExprNode<GE> {
     Expr a, b;
 
-    EXPORT static Expr make(Expr a, Expr b);
+    EXPORT static Expr make(Expr a, Expr b, bool upcast = false);
 
     static const IRNodeType _node_type = IRNodeType::GE;
 };

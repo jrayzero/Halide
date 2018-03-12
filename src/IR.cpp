@@ -5,6 +5,22 @@
 namespace Halide {
 namespace Internal {
 
+bool always_upcast = false;
+void set_always_upcast() {
+    always_upcast = true;
+}
+
+Type cast_to_type(Expr e1, Expr e2) {
+    return e1.type().bytes() > e2.type().bytes() ? e1.type() : e2.type();
+}
+
+Expr cast_if_needed(bool should_cast, Expr e, Type t) {
+    if (!should_cast && !always_upcast) {
+        return e;
+    }
+    return e.type() == t ? e : Halide::Internal::Cast::make(t, e);
+}
+
 Expr Cast::make(Type t, Expr v) {
     internal_assert(v.defined()) << "Cast of undefined\n";
     internal_assert(t.lanes() == v.type().lanes()) << "Cast may not change vector widths\n";
@@ -15,61 +31,106 @@ Expr Cast::make(Type t, Expr v) {
     return node;
 }
 
-Expr Add::make(Expr a, Expr b) {
+Expr Add::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "Add of undefined\n";
     internal_assert(b.defined()) << "Add of undefined\n";
-    internal_assert(a.type() == b.type()) << "Add of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "Add of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     Add *node = new Add;
-    node->type = a.type();
+    node->type = t;
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
 }
 
-Expr Sub::make(Expr a, Expr b) {
+Expr Sub::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "Sub of undefined\n";
     internal_assert(b.defined()) << "Sub of undefined\n";
-    internal_assert(a.type() == b.type()) << "Sub of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "Sub of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     Sub *node = new Sub;
-    node->type = a.type();
+    node->type = t;
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
 }
 
-Expr Mul::make(Expr a, Expr b) {
+Expr Mul::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "Mul of undefined\n";
     internal_assert(b.defined()) << "Mul of undefined\n";
-    internal_assert(a.type() == b.type()) << "Mul of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "Mul of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     Mul *node = new Mul;
-    node->type = a.type();
+    node->type = t;
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
 }
 
-Expr Div::make(Expr a, Expr b) {
+Expr Div::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "Div of undefined\n";
     internal_assert(b.defined()) << "Div of undefined\n";
-    internal_assert(a.type() == b.type()) << "Div of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "Div of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     Div *node = new Div;
-    node->type = a.type();
+    node->type = t;
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
 }
 
-Expr Mod::make(Expr a, Expr b) {
+Expr Mod::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "Mod of undefined\n";
     internal_assert(b.defined()) << "Mod of undefined\n";
-    internal_assert(a.type() == b.type()) << "Mod of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "Mod of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     Mod *node = new Mod;
-    node->type = a.type();
+    node->type = t;
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
@@ -78,10 +139,40 @@ Expr Mod::make(Expr a, Expr b) {
 Expr Min::make(Expr a, Expr b) {
     internal_assert(a.defined()) << "Min of undefined\n";
     internal_assert(b.defined()) << "Min of undefined\n";
-    internal_assert(a.type() == b.type()) << "Min of mismatched types\n";
-
+    if (!always_upcast) {
+        internal_assert(a.type() == b.type()) << "Min of mismatched types\n";
+    }
+    Type t;
+    if (always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     Min *node = new Min;
-    node->type = a.type();
+    node->type = t;
+    a = cast_if_needed(always_upcast, a, t);
+    b = cast_if_needed(always_upcast, b, t);
+    node->a = std::move(a);
+    node->b = std::move(b);
+    return node;
+}
+
+Expr Min::make2(Expr a, Expr b, bool upcast) {
+    internal_assert(a.defined()) << "Min of undefined\n";
+    internal_assert(b.defined()) << "Min of undefined\n";
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "Min of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
+    Min *node = new Min;
+    node->type = t;
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
@@ -90,84 +181,168 @@ Expr Min::make(Expr a, Expr b) {
 Expr Max::make(Expr a, Expr b) {
     internal_assert(a.defined()) << "Max of undefined\n";
     internal_assert(b.defined()) << "Max of undefined\n";
-    internal_assert(a.type() == b.type()) << "Max of mismatched types\n";
-
+    if (!always_upcast) {
+        internal_assert(a.type() == b.type()) << "Max of mismatched types\n";
+    }
+    Type t;
+    if (always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     Max *node = new Max;
-    node->type = a.type();
+    node->type = t;
+    a = cast_if_needed(always_upcast, a, t);
+    b = cast_if_needed(always_upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
 }
 
-Expr EQ::make(Expr a, Expr b) {
+Expr Max::make2(Expr a, Expr b, bool upcast) {
+    internal_assert(a.defined()) << "Max of undefined\n";
+    internal_assert(b.defined()) << "Max of undefined\n";
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "Max of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
+    Max *node = new Max;
+    node->type = t;
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
+    node->a = std::move(a);
+    node->b = std::move(b);
+    return node;
+}
+
+Expr EQ::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "EQ of undefined\n";
     internal_assert(b.defined()) << "EQ of undefined\n";
-    internal_assert(a.type() == b.type()) << "EQ of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "EQ of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     EQ *node = new EQ;
     node->type = Bool(a.type().lanes());
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
 }
 
-Expr NE::make(Expr a, Expr b) {
+Expr NE::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "NE of undefined\n";
     internal_assert(b.defined()) << "NE of undefined\n";
-    internal_assert(a.type() == b.type()) << "NE of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "NE of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     NE *node = new NE;
     node->type = Bool(a.type().lanes());
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
 }
 
-Expr LT::make(Expr a, Expr b) {
+Expr LT::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "LT of undefined\n";
     internal_assert(b.defined()) << "LT of undefined\n";
-    internal_assert(a.type() == b.type()) << "LT of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "LT of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     LT *node = new LT;
     node->type = Bool(a.type().lanes());
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
 }
 
 
-Expr LE::make(Expr a, Expr b) {
+Expr LE::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "LE of undefined\n";
     internal_assert(b.defined()) << "LE of undefined\n";
-    internal_assert(a.type() == b.type()) << "LE of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "LE of mismatched types\n";
+    }
+    Type t;
+    if (upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     LE *node = new LE;
     node->type = Bool(a.type().lanes());
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
 }
 
-Expr GT::make(Expr a, Expr b) {
+Expr GT::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "GT of undefined\n";
     internal_assert(b.defined()) << "GT of undefined\n";
-    internal_assert(a.type() == b.type()) << "GT of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "GT of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     GT *node = new GT;
     node->type = Bool(a.type().lanes());
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
 }
 
 
-Expr GE::make(Expr a, Expr b) {
+Expr GE::make(Expr a, Expr b, bool upcast) {
     internal_assert(a.defined()) << "GE of undefined\n";
     internal_assert(b.defined()) << "GE of undefined\n";
-    internal_assert(a.type() == b.type()) << "GE of mismatched types\n";
-
+    if (!upcast && !always_upcast) {
+        internal_assert(a.type() == b.type()) << "GE of mismatched types\n";
+    }
+    Type t;
+    if (upcast || always_upcast) {
+        t = cast_to_type(a, b);
+    } else {
+        t = a.type();
+    }
     GE *node = new GE;
     node->type = Bool(a.type().lanes());
+    a = cast_if_needed(upcast, a, t);
+    b = cast_if_needed(upcast, b, t);
     node->a = std::move(a);
     node->b = std::move(b);
     return node;

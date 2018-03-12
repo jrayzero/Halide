@@ -3077,8 +3077,6 @@ void CodeGen_LLVM::visit(const For *op) {
         } else {
             internal_assert(min->getType() == i32_t);
         }
-        std::cerr << par_for_func_name << std::endl;
-        module->dump();
         llvm::Function *do_par_for = module->getFunction(par_for_func_name);
         internal_assert(do_par_for) << "Could not find halide_do_par_for in initial module\n";
         #if LLVM_VERSION < 50
