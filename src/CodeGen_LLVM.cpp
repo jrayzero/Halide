@@ -3014,7 +3014,7 @@ void CodeGen_LLVM::visit(const For *op) {
 
         // Make a new function that does one iteration of the body of the loop
         llvm::Type *voidPointerType = (llvm::Type *)(i8_t->getPointerTo());
-        llvm::Type *args_t[] = {voidPointerType, i32_t, voidPointerType};
+        llvm::Type *args_t[] = {voidPointerType, min->getType(), voidPointerType};
         FunctionType *func_t = FunctionType::get(i32_t, args_t, false);
         llvm::Function *containing_function = function;
         function = llvm::Function::Create(func_t, llvm::Function::InternalLinkage,
@@ -3071,7 +3071,13 @@ void CodeGen_LLVM::visit(const For *op) {
 
         // Move the builder back to the main function and call do_par_for
         builder->restoreIP(call_site);
-        llvm::Function *do_par_for = module->getFunction("halide_do_par_for");
+        std::string par_for_func_name = "halide_do_par_for";
+        if (min->getType() == i64_t) {
+            par_for_func_name += "_64";
+        } else {
+            internal_assert(min->getType() == i32_t);
+        }
+        llvm::Function *do_par_for = module->getFunction(par_for_func_name);
         internal_assert(do_par_for) << "Could not find halide_do_par_for in initial module\n";
         #if LLVM_VERSION < 50
         do_par_for->setDoesNotAlias(5);
