@@ -73,62 +73,80 @@ WEAK void init_mutex(void *mutex_arg) {
     mutex->semaphore = dispatch_semaphore_create(1);
 }
 
-struct halide_gcd_job {
-    int (*f)(void *, int, uint8_t *);
-    void *user_context;
-    uint8_t *closure;
-    int min;
-    int exit_status;
+#define MAKE_HALIDE_GCD_JOB(name, dtype) \
+struct name { \
+    int (*f)(void *, dtype, uint8_t *); \
+    void *user_context; \
+    uint8_t *closure; \
+    dtype min; \
+    int exit_status; \
 };
+
+MAKE_HALIDE_GCD_JOB(halide_gcd_job, int)
+MAKE_HALIDE_GCD_JOB(halide_gcd_job_64, int64_t)
 
 // Take a call from grand-central-dispatch's parallel for loop, and
 // make a call to Halide's do task
-WEAK void halide_do_gcd_task(void *job, size_t idx) {
-    halide_gcd_job *j = (halide_gcd_job *)job;
-    j->exit_status = halide_do_task(j->user_context, j->f, j->min + (int)idx,
-                                    j->closure);
+#define MAKE_HALIDE_DO_GCD_TASK(name, job_name, dtype, halide_do_task_name) \
+WEAK void name(void *job, size_t idx) { \
+    job_name *j = (job_name *)job; \
+    j->exit_status = halide_do_task_name(j->user_context, j->f, j->min + (dtype)idx, \
+                                    j->closure); \
 }
+
+MAKE_HALIDE_DO_GCD_TASK(halide_do_gcd_task, halide_gcd_job, int, halide_do_task)
+MAKE_HALIDE_DO_GCD_TASK(halide_do_gcd_task_64, halide_gcd_job_64, int64_t, halide_do_task_64)
 
 }}}  // namespace Halide::Runtime::Internal
 
 extern "C" {
 
-WEAK int halide_default_do_task(void *user_context, int (*f)(void *, int, uint8_t *),
-                                int idx, uint8_t *closure) {
-    return f(user_context, idx, closure);
+#define MAKE_HALIDE_DEFAULT_DO_TASK(name, dtype) \
+WEAK int name(void *user_context, int (*f)(void *, dtype, uint8_t *), \
+                                dtype idx, uint8_t *closure) { \
+    return f(user_context, idx, closure); \
+}
+MAKE_HALIDE_DEFAULT_DO_TASK(halide_default_do_task, int)
+MAKE_HALIDE_DEFAULT_DO_TASK(halide_default_do_task_64, int64_t)
+
+#define MAKE_HALIDE_DEFAULT_DO_PAR_FOR(name, dtype, halide_task_t_name, halide_do_task_name, halide_gcd_job_name, halide_do_gcd_task_name) \
+WEAK int name(void *user_context, halide_task_t_name f, \
+                                   dtype min, dtype size, uint8_t *closure) { \
+    if (custom_num_threads == 1 || size == 1) { \
+        /* GCD doesn't really allow us to limit the threads, */ \
+        /* so ensure that there's no parallelism by executing serially. */ \
+        for (dtype x = min; x < min + size; x++) { \
+            int result = halide_do_task_name(user_context, f, x, closure); \
+            if (result) { \
+                return result; \
+            } \
+        } \
+        return 0; \
+    } \
+\
+    halide_gcd_job_name job; \
+    job.f = f; \
+    job.user_context = user_context; \
+    job.closure = closure; \
+    job.min = min; \
+    job.exit_status = 0; \
+\
+    dispatch_apply_f(size, dispatch_get_global_queue(0, 0), &job, &halide_do_gcd_task_name); \
+    return job.exit_status; \
 }
 
-WEAK int halide_default_do_par_for(void *user_context, halide_task_t f,
-                                   int min, int size, uint8_t *closure) {
-    if (custom_num_threads == 1 || size == 1) {
-        // GCD doesn't really allow us to limit the threads,
-        // so ensure that there's no parallelism by executing serially.
-        for (int x = min; x < min + size; x++) {
-            int result = halide_do_task(user_context, f, x, closure);
-            if (result) {
-                return result;
-            }
-        }
-        return 0;
-    }
-
-    halide_gcd_job job;
-    job.f = f;
-    job.user_context = user_context;
-    job.closure = closure;
-    job.min = min;
-    job.exit_status = 0;
-
-    dispatch_apply_f(size, dispatch_get_global_queue(0, 0), &job, &halide_do_gcd_task);
-    return job.exit_status;
-}
+MAKE_HALIDE_DEFAULT_DO_PAR_FOR(halide_default_do_par_for, int, halide_task_t, halide_do_task, halide_gcd_job, halide_do_gcd_task)
+MAKE_HALIDE_DEFAULT_DO_PAR_FOR(halide_default_do_par_for_64, int64_t, halide_task_64_t, halide_do_task_64,
+                               halide_gcd_job_64, halide_do_gcd_task_64)
 
 }  // extern "C"
 
 namespace Halide { namespace Runtime { namespace Internal {
 
 WEAK halide_do_task_t custom_do_task = halide_default_do_task;
+WEAK halide_do_task_64_t custom_do_task_64 = halide_default_do_task_64;
 WEAK halide_do_par_for_t custom_do_par_for = halide_default_do_par_for;
+WEAK halide_do_par_for_64_t custom_do_par_for_64 = halide_default_do_par_for_64;
 
 }}}  // namespace Halide::Runtime::Internal
 
@@ -171,9 +189,21 @@ WEAK halide_do_task_t halide_set_custom_do_task(halide_do_task_t f) {
     return result;
 }
 
+WEAK halide_do_task_64_t halide_set_custom_do_task_64(halide_do_task_64_t f) {
+    halide_do_task_64_t result = custom_do_task_64;
+    custom_do_task_64 = f;
+    return result;
+}
+
 WEAK halide_do_par_for_t halide_set_custom_do_par_for(halide_do_par_for_t f) {
     halide_do_par_for_t result = custom_do_par_for;
     custom_do_par_for = f;
+    return result;
+}
+
+WEAK halide_do_par_for_64_t halide_set_custom_do_par_for_64(halide_do_par_for_64_t f) {
+    halide_do_par_for_64_t result = custom_do_par_for_64;
+    custom_do_par_for_64 = f;
     return result;
 }
 
@@ -182,9 +212,19 @@ WEAK int halide_do_task(void *user_context, halide_task_t f, int idx,
     return (*custom_do_task)(user_context, f, idx, closure);
 }
 
+WEAK int halide_do_task_64(void *user_context, halide_task_64_t f, int64_t idx,
+                        uint8_t *closure) {
+    return (*custom_do_task_64)(user_context, f, idx, closure);
+}
+
 WEAK int halide_do_par_for(void *user_context, halide_task_t f,
                            int min, int size, uint8_t *closure) {
   return (*custom_do_par_for)(user_context, f, min, size, closure);
+}
+
+WEAK int halide_do_par_for_64(void *user_context, halide_task_64_t f,
+                           int64_t min, int64_t size, uint8_t *closure) {
+    return (*custom_do_par_for_64)(user_context, f, min, size, closure);
 }
 
 }
