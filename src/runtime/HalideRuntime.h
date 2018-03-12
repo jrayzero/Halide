@@ -129,7 +129,7 @@ extern int halide_do_par_for(void *user_context,
 extern void halide_shutdown_thread_pool();
 typedef int (*halide_task_64_t)(void *user_context, int64_t task_number, uint8_t *closure);
 extern int halide_do_par_for_64(void *user_context,
-                             halide_task_t task,
+                             halide_task_64_t task,
                              int64_t min, int64_t size, uint8_t *closure);
 extern void halide_shutdown_thread_pool_64();
 //@}
