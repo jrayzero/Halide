@@ -176,7 +176,7 @@ WEAK int name(void *user_context, halide_task_t_type f, dtype idx, \
 MAKE_HALIDE_DEFAULT_DO_TASK(halide_default_do_task, halide_task_t, int)
 MAKE_HALIDE_DEFAULT_DO_TASK(halide_default_do_task_64, halide_task_64_t, int64_t)
 
-#define MAKE_HALIDE_DEFAULT_DO_PAR_FOR(name, halide_task_t_type, dtype, work_name, work_queue_name, worker_thread_already_locked_name) \
+#define MAKE_HALIDE_DEFAULT_DO_PAR_FOR(name, halide_task_t_type, dtype, work_name, work_queue_name, worker_thread_already_locked_name, worker_thread_name) \
 WEAK int name(void *user_context, halide_task_t_type f, \
                                    dtype min, dtype size, uint8_t *closure) { \
     /* Our for loops are expected to gracefully handle sizes <= 0 */ \
@@ -205,16 +205,16 @@ WEAK int name(void *user_context, halide_task_t_type f, \
         (work_queue_name).threads_created = 0; \
 \
         /* Everyone starts on the a team. */ \
-        (work_queue_name).a_team_size = work_queue.desired_num_threads; \
+        (work_queue_name).a_team_size = work_queue_name.desired_num_threads; \
 \
         (work_queue_name).initialized = true; \
     } \
 \
-    while ((work_queue_name).threads_created < work_queue.desired_num_threads - 1) { \
-        /* We might need to make some new threads, if work_queue.desired_num_threads has */ \
+    while ((work_queue_name).threads_created < work_queue_name.desired_num_threads - 1) { \
+        /* We might need to make some new threads, if work_queue_name.desired_num_threads has */ \
         /* increased. */ \
-        (work_queue_name).threads[work_queue.threads_created++] = \
-            halide_spawn_thread(worker_thread, NULL); \
+      (work_queue_name).threads[work_queue_name.threads_created++] =	\
+            halide_spawn_thread(worker_thread_name, NULL); \
     } \
 \
     /* Make the job. */ \
@@ -238,7 +238,7 @@ WEAK int name(void *user_context, halide_task_t_type f, \
         /* desired_num_threads. This may still be less than */ \
         /* threads_created if desired_num_threads has been reduced by */ \
         /* other code. */ \
-        (work_queue_name).target_a_team_size = work_queue.desired_num_threads; \
+        (work_queue_name).target_a_team_size = work_queue_name.desired_num_threads; \
     } \
 \
     /* Push the job onto the stack. */ \
@@ -257,15 +257,15 @@ WEAK int name(void *user_context, halide_task_t_type f, \
     /* Do some work myself. */ \
     worker_thread_already_locked_name(&job); \
 \
-    halide_mutex_unlock(&work_queue.mutex); \
+    halide_mutex_unlock(&work_queue_name.mutex); \
 \
     /* Return zero if the job succeeded, otherwise return the exit */ \
     /* status of one of the failing jobs (whichever one failed last). */ \
     return job.exit_status; \
 }
 
-MAKE_HALIDE_DEFAULT_DO_PAR_FOR(halide_default_do_par_for, halide_task_t, int, work, work_queue, worker_thread_already_locked)
-MAKE_HALIDE_DEFAULT_DO_PAR_FOR(halide_default_do_par_for_64, halide_task_64_t, int64_t , work_64, work_queue_64, worker_thread_already_locked_64)
+MAKE_HALIDE_DEFAULT_DO_PAR_FOR(halide_default_do_par_for, halide_task_t, int, work, work_queue, worker_thread_already_locked, worker_thread)
+MAKE_HALIDE_DEFAULT_DO_PAR_FOR(halide_default_do_par_for_64, halide_task_64_t, int64_t , work_64, work_queue_64, worker_thread_already_locked_64, worker_thread_64)
 
 #define MAKE_HALIDE_SET_NUM_THREADS(name, work_queue_name) \
 WEAK int name(int n) { \
