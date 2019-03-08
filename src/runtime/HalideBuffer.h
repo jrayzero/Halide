@@ -1497,7 +1497,7 @@ private:
     template<typename ...Args>
     HALIDE_ALWAYS_INLINE
     ptrdiff_t offset_of(int d, int first, Args... rest) const {
-        return offset_of(d+1, rest...) + this->buf.dim[d].stride * (first - this->buf.dim[d].min);
+      return offset_of(d+1, rest...) + (ptrdiff_t)this->buf.dim[d].stride * (first - this->buf.dim[d].min);
     }
 
     HALIDE_ALWAYS_INLINE
