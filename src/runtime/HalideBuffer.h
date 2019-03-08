@@ -438,7 +438,7 @@ public:
         ptrdiff_t index = 0;
         for (int i = 0; i < dimensions(); i++) {
             if (dim(i).stride() < 0) {
-                index += dim(i).stride() * (dim(i).extent() - 1);
+	      index += (ptrdiff_t)dim(i).stride() * (ptrdiff_t)(dim(i).extent() - 1);
             }
         }
         return (T *)(buf.host + index * type().bytes());
@@ -449,7 +449,7 @@ public:
         ptrdiff_t index = 0;
         for (int i = 0; i < dimensions(); i++) {
             if (dim(i).stride() > 0) {
-                index += dim(i).stride() * (dim(i).extent() - 1);
+	      index += (ptrdiff_t)dim(i).stride() * (ptrdiff_t)(dim(i).extent() - 1);
             }
         }
         index += 1;
