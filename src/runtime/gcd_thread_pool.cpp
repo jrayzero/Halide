@@ -74,10 +74,10 @@ WEAK void init_mutex(void *mutex_arg) {
 }
 
 struct halide_gcd_job {
-    int (*f)(void *, int, uint8_t *);
+    int (*f)(void *, int64_t, uint8_t *);
     void *user_context;
     uint8_t *closure;
-    int min;
+    int64_t min;
     int exit_status;
 };
 
@@ -85,7 +85,7 @@ struct halide_gcd_job {
 // make a call to Halide's do task
 WEAK void halide_do_gcd_task(void *job, size_t idx) {
     halide_gcd_job *j = (halide_gcd_job *)job;
-    j->exit_status = halide_do_task(j->user_context, j->f, j->min + (int)idx,
+    j->exit_status = halide_do_task(j->user_context, j->f, j->min + idx,
                                     j->closure);
 }
 
@@ -93,13 +93,13 @@ WEAK void halide_do_gcd_task(void *job, size_t idx) {
 
 extern "C" {
 
-WEAK int halide_default_do_task(void *user_context, int (*f)(void *, int, uint8_t *),
-                                int idx, uint8_t *closure) {
+WEAK int halide_default_do_task(void *user_context, int (*f)(void *, int64_t, uint8_t *),
+                                int64_t idx, uint8_t *closure) {
     return f(user_context, idx, closure);
 }
 
 WEAK int halide_default_do_par_for(void *user_context, halide_task_t f,
-                                   int min, int size, uint8_t *closure) {
+                                   int64_t min, int64_t size, uint8_t *closure) {
     if (custom_num_threads == 1 || size == 1) {
         // GCD doesn't really allow us to limit the threads,
         // so ensure that there's no parallelism by executing serially.
@@ -177,13 +177,13 @@ WEAK halide_do_par_for_t halide_set_custom_do_par_for(halide_do_par_for_t f) {
     return result;
 }
 
-WEAK int halide_do_task(void *user_context, halide_task_t f, int idx,
+WEAK int halide_do_task(void *user_context, halide_task_t f, int64_t idx,
                         uint8_t *closure) {
     return (*custom_do_task)(user_context, f, idx, closure);
 }
 
 WEAK int halide_do_par_for(void *user_context, halide_task_t f,
-                           int min, int size, uint8_t *closure) {
+                           int64_t min, int64_t size, uint8_t *closure) {
   return (*custom_do_par_for)(user_context, f, min, size, closure);
 }
 

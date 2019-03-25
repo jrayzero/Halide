@@ -121,24 +121,35 @@ extern void halide_mutex_destroy(struct halide_mutex *mutex);
  * jobs otherwise.
  */
 //@{
-typedef int (*halide_task_t)(void *user_context, int task_number, uint8_t *closure);
-extern int halide_do_par_for(void *user_context,
-                             halide_task_t task,
-                             int min, int size, uint8_t *closure);
+typedef int (*halide_task_t)(void *user_context, int64_t task_number, uint8_t *closure);
+extern int halide_do_par_for_s8(void *user_context,
+				halide_task_t task,
+				int8_t min, int8_t size, uint8_t *closure);
+extern int halide_do_par_for_s16(void *user_context,
+				halide_task_t task,
+				int16_t min, int16_t size, uint8_t *closure);
+extern int halide_do_par_for_s32(void *user_context,
+				halide_task_t task,
+				int32_t min, int32_t size, uint8_t *closure);
+extern int halide_do_par_for_s64(void *user_context,
+				halide_task_t task,
+				int64_t min, int64_t size, uint8_t *closure);
+
+  
 extern void halide_shutdown_thread_pool();
 //@}
 
 /** Set a custom method for performing a parallel for loop. Returns
  * the old do_par_for handler. */
-typedef int (*halide_do_par_for_t)(void *, halide_task_t, int, int, uint8_t*);
+typedef int (*halide_do_par_for_t)(void *, halide_task_t, int64_t, int64_t, uint8_t*);
 extern halide_do_par_for_t halide_set_custom_do_par_for(halide_do_par_for_t do_par_for);
 
 /** If you use the default do_par_for, you can still set a custom
  * handler to perform each individual task. Returns the old handler. */
 //@{
-typedef int (*halide_do_task_t)(void *, halide_task_t, int, uint8_t *);
+typedef int (*halide_do_task_t)(void *, halide_task_t, int64_t, uint8_t *);
 extern halide_do_task_t halide_set_custom_do_task(halide_do_task_t do_task);
-extern int halide_do_task(void *user_context, halide_task_t f, int idx,
+extern int halide_do_task(void *user_context, halide_task_t f, int64_t idx,
                           uint8_t *closure);
 //@}
 
@@ -147,8 +158,8 @@ extern int halide_do_task(void *user_context, halide_task_t f, int idx,
 // @{
 extern int halide_default_do_par_for(void *user_context,
                                      halide_task_t task,
-                                     int min, int size, uint8_t *closure);
-extern int halide_default_do_task(void *user_context, halide_task_t f, int idx,
+                                     int64_t min, int64_t size, uint8_t *closure);
+extern int halide_default_do_task(void *user_context, halide_task_t f, int64_t idx,
                                   uint8_t *closure);
 // @}
 

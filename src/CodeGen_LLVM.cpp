@@ -3020,7 +3020,7 @@ void CodeGen_LLVM::visit(const For *op) {
 
         // Make a new function that does one iteration of the body of the loop
         llvm::Type *voidPointerType = (llvm::Type *)(i8_t->getPointerTo());
-        llvm::Type *args_t[] = {voidPointerType, i32_t, voidPointerType};
+        llvm::Type *args_t[] = {voidPointerType, halide_int_type_to_llvm_type(op->iterator_type), voidPointerType};
         FunctionType *func_t = FunctionType::get(i32_t, args_t, false);
         llvm::Function *containing_function = function;
         function = llvm::Function::Create(func_t, llvm::Function::InternalLinkage,
@@ -3077,7 +3077,19 @@ void CodeGen_LLVM::visit(const For *op) {
 
         // Move the builder back to the main function and call do_par_for
         builder->restoreIP(call_site);
-        llvm::Function *do_par_for = module->getFunction("halide_do_par_for");
+	std::string do_par_for_name = "halide_do_par_for_";
+	if (op->iterator_type == Int(8)) {
+	  do_par_for_name += "s8";
+	} else if (op->iterator_type == Int(16)) {
+	  do_par_for_name += "s16";
+	} else if (op->iterator_type == Int(32)) {
+	  do_par_for_name += "s32";
+	} else if (op->iterator_type == Int(64)) {
+	  do_par_for_name += "s64";
+	} else {
+	  internal_error << "Only support int8, int16, int32, and int64 loop iterator types for parallel currently";
+	}
+        llvm::Function *do_par_for = module->getFunction(do_par_for_name);
         internal_assert(do_par_for) << "Could not find halide_do_par_for in initial module\n";
         #if LLVM_VERSION < 50
         do_par_for->setDoesNotAlias(5);

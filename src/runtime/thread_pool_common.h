@@ -3,9 +3,9 @@ namespace Halide { namespace Runtime { namespace Internal {
 
 struct work {
     work *next_job;
-    int (*f)(void *, int, uint8_t *);
+    int (*f)(void *, int64_t, uint8_t *);
     void *user_context;
-    int next, max;
+    int64_t next, max;
     uint8_t *closure;
     int active_workers;
     int exit_status;
@@ -161,13 +161,13 @@ using namespace Halide::Runtime::Internal;
 
 extern "C" {
 
-WEAK int halide_default_do_task(void *user_context, halide_task_t f, int idx,
+WEAK int halide_default_do_task(void *user_context, halide_task_t f, int64_t idx,
                                 uint8_t *closure) {
     return f(user_context, idx, closure);
 }
 
-WEAK int halide_default_do_par_for(void *user_context, halide_task_t f,
-                                   int min, int size, uint8_t *closure) {
+  WEAK int halide_default_do_par_for(void *user_context, halide_task_t f,
+				     int64_t min, int64_t size, uint8_t *closure) {
     // Our for loops are expected to gracefully handle sizes <= 0
     if (size <= 0) {
         return 0;

@@ -2,14 +2,14 @@
 
 extern "C" {
 
-WEAK int halide_default_do_task(void *user_context, halide_task_t f, int idx,
+WEAK int halide_default_do_task(void *user_context, halide_task_t f, int64_t idx,
                                 uint8_t *closure) {
     return f(user_context, idx, closure);
 }
 
 WEAK int halide_default_do_par_for(void *user_context, halide_task_t f,
-                                   int min, int size, uint8_t *closure) {
-    for (int x = min; x < min + size; x++) {
+                                   int64_t min, int64_t size, uint8_t *closure) {
+    for (int64_t x = min; x < min + size; x++) {
         int result = halide_do_task(user_context, f, x, closure);
         if (result) {
             return result;
@@ -66,13 +66,13 @@ WEAK halide_do_par_for_t halide_set_custom_do_par_for(halide_do_par_for_t f) {
     return result;
 }
 
-WEAK int halide_do_task(void *user_context, halide_task_t f, int idx,
+WEAK int halide_do_task(void *user_context, halide_task_t f, int64_t idx,
                         uint8_t *closure) {
     return (*custom_do_task)(user_context, f, idx, closure);
 }
 
 WEAK int halide_do_par_for(void *user_context, halide_task_t f,
-                           int min, int size, uint8_t *closure) {
+                           int64_t min, int64_t size, uint8_t *closure) {
   return (*custom_do_par_for)(user_context, f, min, size, closure);
 }
 

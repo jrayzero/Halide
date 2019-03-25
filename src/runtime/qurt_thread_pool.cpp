@@ -105,7 +105,7 @@ extern "C" {
 // other.
 WEAK int halide_do_par_for(void *user_context,
                            halide_task_t task,
-                           int min, int size, uint8_t *closure) {
+                           int64_t min, int64_t size, uint8_t *closure) {
     // Get the work queue mutex. We need to do a handful of hexagon-specific things.
     qurt_mutex_t *mutex = (qurt_mutex_t *)(&work_queue.mutex);
     if (!work_queue.initialized) {
@@ -156,7 +156,7 @@ WEAK int halide_do_par_for(void *user_context,
 }
 
 WEAK int halide_do_task(void *user_context, halide_task_t f,
-                        int idx, uint8_t *closure) {
+                        int64_t idx, uint8_t *closure) {
     // Dig the appropriate hvx mode out of the wrapped closure and lock it.
     wrapped_closure *c = (wrapped_closure *)closure;
     // We don't own the thread-pool lock here, so we can safely
