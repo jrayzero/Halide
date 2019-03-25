@@ -330,7 +330,7 @@ class FindSimplifications : public IRVisitor {
         for (Simplification &s : simplifications) {
             if (expr_uses_var(s.condition, op->name)) {
                 Scope<Interval> varying;
-                varying.push(op->name, Interval(op->min, op->min + op->extent - 1));
+                varying.push(op->name, Interval(op->min, op->min + op->extent - Halide::Internal::Cast::make(op->iterator_type, 1)));
                 Expr relaxed = and_condition_over_domain(s.condition, varying);
                 internal_assert(!expr_uses_var(relaxed, op->name))
                     << "Should not have had used the loop var (" << op->name
@@ -603,7 +603,7 @@ class PartitionLoops : public IRMutator {
             // Stop the prologue from running past the end of the loop
             prologue_val = min(prologue_val, op->extent + op->min);
             // prologue_val = print(prologue_val, prologue_name);
-            min_steady = Variable::make(Int(32), prologue_name);
+            min_steady = Variable::make(op->iterator_type, prologue_name);
 
             internal_assert(!expr_uses_var(prologue_val, op->name));
         }
@@ -618,23 +618,24 @@ class PartitionLoops : public IRMutator {
                 epilogue_val = max(op->min, epilogue_val);
             }
             // epilogue_val = print(epilogue_val, epilogue_name);
-            max_steady = Variable::make(Int(32), epilogue_name);
+            max_steady = Variable::make(op->iterator_type, epilogue_name);
 
             internal_assert(!expr_uses_var(epilogue_val, op->name));
         }
 
         // Bust serial for loops up into three.
-        if (op->for_type == ForType::Serial) {
-            stmt = For::make(op->name, min_steady, max_steady - min_steady,
-                             op->for_type, op->device_api, simpler_body);
-
+        if (op->for_type == ForType::Serial) {	  
+	    stmt = For::make(op->name, min_steady, 
+			     max_steady - min_steady,
+                             op->for_type, op->device_api, simpler_body);	    
             if (make_prologue) {
                 prologue = For::make(op->name, op->min, min_steady - op->min,
                                      op->for_type, op->device_api, prologue);
                 stmt = Block::make(prologue, stmt);
             }
             if (make_epilogue) {
-                epilogue = For::make(op->name, max_steady, op->min + op->extent - max_steady,
+                epilogue = For::make(op->name, max_steady, 
+				     op->min + op->extent - max_steady,
                                      op->for_type, op->device_api, epilogue);
                 stmt = Block::make(stmt, epilogue);
             }
@@ -642,10 +643,11 @@ class PartitionLoops : public IRMutator {
             // We don't have task parallelism. So for parallel for
             // loops just put an if-then-else in the loop body. It
             // should branch-predict to the steady state pretty well.
-            Expr loop_var = Variable::make(Int(32), op->name);
+            Expr loop_var = Variable::make(op->iterator_type, op->name);
             stmt = simpler_body;
             if (make_epilogue && make_prologue && equal(prologue, epilogue)) {
-                stmt = IfThenElse::make(min_steady <= loop_var && loop_var < max_steady, stmt, prologue);
+                stmt = IfThenElse::make(min_steady <= loop_var && 
+					loop_var < max_steady, stmt, prologue);
             } else {
                 if (make_epilogue) {
                     stmt = IfThenElse::make(loop_var < max_steady, stmt, epilogue);
