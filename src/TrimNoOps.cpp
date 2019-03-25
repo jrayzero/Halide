@@ -390,9 +390,9 @@ class TrimNoOps : public IRMutator {
         string new_min_name = unique_name(op->name + ".new_min");
         string new_max_name = unique_name(op->name + ".new_max");
         string old_max_name = unique_name(op->name + ".old_max");
-        Expr new_min_var = Variable::make(Int(32), new_min_name);
-        Expr new_max_var = Variable::make(Int(32), new_max_name);
-        Expr old_max_var = Variable::make(Int(32), old_max_name);
+        Expr new_min_var = Variable::make(op->iterator_type, new_min_name);
+        Expr new_max_var = Variable::make(op->iterator_type, new_max_name);
+        Expr old_max_var = Variable::make(op->iterator_type, old_max_name);
 
         // Convert max to max-plus-one
         if (i.has_upper_bound()) {

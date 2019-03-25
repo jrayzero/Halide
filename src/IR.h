@@ -656,6 +656,7 @@ struct Variable : public ExprNode<Variable> {
 struct For : public StmtNode<For> {
     std::string name;
     Expr min, extent;
+    Type iterator_type;
     ForType for_type;
     DeviceAPI device_api;
     Stmt body;

@@ -17,7 +17,12 @@ Expr Cast::make(Type t, Expr v) {
 
 Expr Add::make(Expr a, Expr b) {
     internal_assert(a.defined()) << "Add of undefined\n";
-    internal_assert(b.defined()) << "Add of undefined\n";
+    internal_assert(b.defined()) << "Add of undefined\n";    
+    if (a.type() != b.type()) {
+      std::cerr << a.type() << " " << b.type() << std::endl;
+      std::cerr << a << std::endl;
+      std::cerr << b << std::endl;
+    }
     internal_assert(a.type() == b.type()) << "Add of mismatched types\n";
 
     Add *node = new Add;
@@ -331,6 +336,7 @@ Stmt For::make(const std::string &name, Expr min, Expr extent, ForType for_type,
     internal_assert(min.type().is_scalar()) << "For with vector min\n";
     internal_assert(extent.type().is_scalar()) << "For with vector extent\n";
     internal_assert(body.defined()) << "For of undefined\n";
+    internal_assert(min.type() == extent.type()) << "For.min.type != For.extent.type\n";
 
     For *node = new For;
     node->name = name;
@@ -339,6 +345,7 @@ Stmt For::make(const std::string &name, Expr min, Expr extent, ForType for_type,
     node->for_type = for_type;
     node->device_api = device_api;
     node->body = std::move(body);
+    node->iterator_type = node->min.type();
     return node;
 }
 
