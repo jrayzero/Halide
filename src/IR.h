@@ -365,8 +365,8 @@ struct Allocate : public StmtNode<Allocate> {
      * overflows, this routine asserts. This returns 0 if the extents are
      * not all constants; otherwise, it returns the total constant allocation
      * size. */
-    EXPORT static int32_t constant_allocation_size(const std::vector<Expr> &extents, const std::string &name);
-    EXPORT int32_t constant_allocation_size() const;
+    EXPORT static int64_t constant_allocation_size(const std::vector<Expr> &extents, const std::string &name);
+    EXPORT int64_t constant_allocation_size() const;
 
     static const IRNodeType _node_type = IRNodeType::Allocate;
 };

@@ -397,7 +397,7 @@ Stmt Allocate::make(const std::string &name, Type type, const std::vector<Expr> 
     return node;
 }
 
-int32_t Allocate::constant_allocation_size(const std::vector<Expr> &extents, const std::string &name) {
+int64_t Allocate::constant_allocation_size(const std::vector<Expr> &extents, const std::string &name) {
     int64_t result = 1;
 
     for (size_t i = 0; i < extents.size(); i++) {
@@ -415,20 +415,20 @@ int32_t Allocate::constant_allocation_size(const std::vector<Expr> &extents, con
             }
             */
             result *= int_size->value;
-            if (result > (static_cast<int64_t>(1)<<31) - 1) {
+	    /*            if (result > (static_cast<int64_t>(1)<<31) - 1) {
                 user_error
                     << "Total size for allocation " << name
                     << " is constant but exceeds 2^31 - 1.\n";
-            }
+		    }*/
         } else {
             return 0;
         }
     }
 
-    return static_cast<int32_t>(result);
+    return static_cast<int64_t>(result);
 }
 
-int32_t Allocate::constant_allocation_size() const {
+int64_t Allocate::constant_allocation_size() const {
     return Allocate::constant_allocation_size(extents, name);
 }
 

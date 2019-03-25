@@ -84,7 +84,7 @@ CodeGen_Posix::Allocation CodeGen_Posix::create_allocation(const std::string &na
                                                            Expr new_expr, std::string free_function) {
     Value *llvm_size = nullptr;
     int64_t stack_bytes = 0;
-    int32_t constant_bytes = Allocate::constant_allocation_size(extents, name);
+    int64_t constant_bytes = Allocate::constant_allocation_size(extents, name);
     if (constant_bytes > 0) {
         constant_bytes *= type.bytes();
         stack_bytes = constant_bytes;
