@@ -772,15 +772,18 @@ class VectorSubs : public IRMutator {
         }
 
         Expr min = mutate(op->min);
+	min = Halide::Internal::Cast::make(op->iterator_type, min);
         Expr extent = mutate(op->extent);
+	extent = Halide::Internal::Cast::make(op->iterator_type, extent);
 
         Stmt body = op->body;
 
         if (min.type().is_vector()) {
             // Rebase the loop to zero and try again
-            Expr var = Variable::make(Int(32), op->name);
+            Expr var = Variable::make(op->iterator_type, op->name);
             Stmt body = substitute(op->name, var + op->min, op->body);
-            Stmt transformed = For::make(op->name, 0, op->extent, for_type, op->device_api, body);
+            Stmt transformed = For::make(op->name, Halide::Internal::Cast::make(op->iterator_type, 0), 
+					 op->extent, for_type, op->device_api, body);
             stmt = mutate(transformed);
             return;
         }
@@ -791,7 +794,7 @@ class VectorSubs : public IRMutator {
             // each lane from going too far.
 
             extent = bounds_of_lanes(extent).max;
-            Expr var = Variable::make(Int(32), op->name);
+            Expr var = Variable::make(op->iterator_type, op->name);
             body = IfThenElse::make(likely(var < op->min + op->extent), body);
         }
 
@@ -936,8 +939,8 @@ class VectorizeLoops : public IRMutator {
             }
 
             // Replace the var with a ramp within the body
-            Expr for_var = Variable::make(Int(32), for_loop->name);
-            Expr replacement = Ramp::make(for_loop->min, 1, extent->value);
+            Expr for_var = Variable::make(for_loop->iterator_type, for_loop->name);
+            Expr replacement = Ramp::make(for_loop->min, Halide::Internal::Cast::make(for_loop->iterator_type, 1), extent->value);
             stmt = VectorSubs(for_loop->name, replacement, in_hexagon, target).mutate(for_loop->body);
         } else {
             IRMutator::visit(for_loop);

@@ -258,6 +258,7 @@ Expr Ramp::make(Expr base, Expr stride, int lanes) {
     internal_assert(stride.type().is_scalar()) << "Ramp with vector stride\n";
     internal_assert(lanes > 1) << "Ramp of lanes <= 1\n";
     internal_assert(stride.type() == base.type()) << "Ramp of mismatched types\n";
+    
 
     Ramp *node = new Ramp;
     node->type = base.type().with_lanes(lanes);
