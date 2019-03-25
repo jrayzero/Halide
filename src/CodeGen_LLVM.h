@@ -86,6 +86,9 @@ protected:
      * call to end_func with the same arguments, to generate the
      * appropriate cleanup code. */
     // @{
+
+    llvm::Type *halide_int_type_to_llvm_type(Halide::Type t);
+
     virtual void begin_func(LoweredFunc::LinkageType linkage, const std::string &simple_name,
                             const std::string &extern_name, const std::vector<LoweredArgument> &args);
     virtual void end_func(const std::vector<LoweredArgument> &args);

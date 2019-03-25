@@ -363,7 +363,6 @@ void CodeGen_LLVM::initialize_llvm() {
         llvm_initialized = true;
     }
 }
-
 void CodeGen_LLVM::init_context() {
     // Ensure our IRBuilder is using the current context.
     delete builder;
@@ -558,6 +557,20 @@ std::unique_ptr<llvm::Module> CodeGen_LLVM::compile(const Module &input) {
     return std::move(module);
 }
 
+llvm::Type *CodeGen_LLVM::halide_int_type_to_llvm_type(Halide::Type t) {
+  if (t == Int(1) || t == UInt(1)) {
+    return i1_t; 
+  } else if (t == Int(8) || t == UInt(8)) {
+    return i8_t;
+  } else if (t == Int(16) || t == UInt(16)) {
+    return i16_t;
+  } else if (t == Int(32) || t == UInt(32)) {
+    return i32_t;
+  } else if (t == Int(64) || t == UInt(64)) {
+    return i64_t;
+  }
+  return nullptr;
+}
 
 void CodeGen_LLVM::begin_func(LoweredFunc::LinkageType linkage, const std::string& name,
                               const std::string& extern_name, const std::vector<LoweredArgument>& args) {
@@ -2967,7 +2980,7 @@ void CodeGen_LLVM::visit(const For *op) {
         builder->SetInsertPoint(loop_bb);
 
         // Make our phi node.
-        PHINode *phi = builder->CreatePHI(i32_t, 2);
+        PHINode *phi = builder->CreatePHI(halide_int_type_to_llvm_type(op->iterator_type), 2);
         phi->addIncoming(min, preheader_bb);
 
         // Within the loop, the variable is equal to the phi value
@@ -2977,7 +2990,7 @@ void CodeGen_LLVM::visit(const For *op) {
         codegen(op->body);
 
         // Update the counter
-        Value *next_var = builder->CreateNSWAdd(phi, ConstantInt::get(i32_t, 1));
+        Value *next_var = builder->CreateNSWAdd(phi, ConstantInt::get(halide_int_type_to_llvm_type(op->iterator_type), 1));
 
         // Add the back-edge to the phi node
         phi->addIncoming(next_var, builder->GetInsertBlock());
