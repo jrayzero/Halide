@@ -25,8 +25,8 @@ Internal::ReductionDomain make_dom_from_dimensions(const T &t, const std::string
     for (int i = 0; i < t.dimensions(); i++) {
         vars.push_back({
             name + dom_var_names[i],
-            t.dim(i).min(),
-            t.dim(i).extent()
+	      Expr(t.dim(i).min()),
+	      Expr(t.dim(i).extent())
         });
     }
 

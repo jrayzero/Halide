@@ -358,23 +358,23 @@ public:
         const halide_dimension_t &d;
     public:
         /** The lowest coordinate in this dimension */
-        HALIDE_ALWAYS_INLINE int min() const {
+        HALIDE_ALWAYS_INLINE int64_t min() const {
             return d.min;
         }
 
         /** The number of elements in memory you have to step over to
          * increment this coordinate by one. */
-        HALIDE_ALWAYS_INLINE int stride() const {
+        HALIDE_ALWAYS_INLINE int64_t stride() const {
             return d.stride;
         }
 
         /** The extent of the image along this dimension */
-        HALIDE_ALWAYS_INLINE int extent() const {
+        HALIDE_ALWAYS_INLINE int64_t extent() const {
             return d.extent;
         }
 
         /** The highest coordinate in this dimension */
-        HALIDE_ALWAYS_INLINE int max() const {
+        HALIDE_ALWAYS_INLINE int64_t max() const {
             return min() + extent() - 1;
         }
 
@@ -1621,19 +1621,19 @@ private:
     template<int N>
     struct for_each_value_task_dim {
         int extent;
-        int stride[N];
+        int64_t stride[N];
     };
 
     // Given an array of strides, and a bunch of pointers to pointers
     // (all of different types), advance the pointers using the
     // strides.
     template<typename Ptr, typename ...Ptrs>
-    static void advance_ptrs(const int *stride, Ptr *ptr, Ptrs... ptrs) {
+    static void advance_ptrs(const int64_t *stride, Ptr *ptr, Ptrs... ptrs) {
         (*ptr) += *stride;
         advance_ptrs(stride + 1, ptrs...);
     }
 
-    static void advance_ptrs(const int *) {}
+    static void advance_ptrs(const int64_t *) {}
 
     // Same as the above, but just increments the pointers.
     template<typename Ptr, typename ...Ptrs>
@@ -1648,7 +1648,7 @@ private:
     // out their strides in the d'th dimension, and assert that their
     // sizes match in that dimension.
     template<typename T2, int D2, typename ...Args>
-    void extract_strides(int d, int *strides, const Buffer<T2, D2> *first, Args... rest) {
+    void extract_strides(int d, int64_t *strides, const Buffer<T2, D2> *first, Args... rest) {
         assert(first->dimensions() == dimensions());
         assert(first->dim(d).min() == dim(d).min() &&
                first->dim(d).max() == dim(d).max());
@@ -1656,7 +1656,7 @@ private:
         extract_strides(d, strides, rest...);
     }
 
-    void extract_strides(int d, int *strides) {}
+    void extract_strides(int d, int64_t *strides) {}
 
     // The template function that constructs the loop nest for for_each_value
     template<int d, bool innermost_strides_are_one, typename Fn, typename... Ptrs>
